@@ -17,7 +17,7 @@ private enum GitHubActionsRunnerSSHConnectionHandlerError: LocalizedError {
     }
 }
 
-public struct GitHubActionsRunnerSSHConnectionHandler: VirtualMachineSSHConnectionHandler {
+public final class GitHubActionsRunnerSSHConnectionHandler: VirtualMachineSSHConnectionHandler {
     private let logger: Logger
     private let client: GitHubClient
     private let credentialsStore: GitHubCredentialsStore
@@ -103,7 +103,7 @@ cd \\$ACTIONS_RUNNER_DIRECTORY
   --unattended\\\\
   --ephemeral\\\\
   --replace\\\\
-  --labels "\(configuration.runnerLabels)"\\\\
+  --labels "\(virtualMachine.runnerLabels ?? configuration.runnerLabels)"\\\\
   --name "\(virtualMachine.name)"\\\\
   --runnergroup "\(configuration.runnerGroup)"\\\\
   --work "_work"\\\\

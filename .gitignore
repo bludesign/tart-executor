@@ -2,7 +2,5 @@
 .build
 .index-build
 .swiftpm
-xcuserdata
-Tartelet.xcodeproj
-build/
-Package.resolved
+builds/
+DerivedData

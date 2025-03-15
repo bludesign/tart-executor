@@ -18,10 +18,10 @@ private enum StartVirtualMachineError: LocalizedError, CustomDebugStringConverti
 
     var debugDescription: String {
         switch self {
-        case .failedStartingVirtualMachine:
-            "Failed starting virtual machine"
-        case .failedEstablishingSSHConnection:
-            "Failed establishing SSH connection"
+        case let .failedStartingVirtualMachine(error):
+            "Failed starting virtual machine: \(error.localizedDescription)"
+        case let .failedEstablishingSSHConnection(error):
+            "Failed establishing SSH connection: \(error.localizedDescription)"
         case .cancelled:
             "Task was cancelled"
         }
@@ -36,6 +36,9 @@ public final class SSHConnectingVirtualMachine<SSHClientType: SSHClient>: Virtua
     }
     public var canStart: Bool {
         virtualMachine.canStart
+    }
+    public var runnerLabels: String? {
+        virtualMachine.runnerLabels
     }
 
     private let logger: Logger
@@ -52,13 +55,13 @@ public final class SSHConnectingVirtualMachine<SSHClientType: SSHClient>: Virtua
         self.sshClient = sshClient
     }
 
-    public func start() async throws {
+    public func start(netBridgedAdapter: String?, isHeadless: Bool) async throws {
         try await withThrowingTaskGroup(of: StartVirtualMachineResult.self) { group in
             group.addTask {
-                return try await self.startVirtualMachine()
+                return try await self.startVirtualMachine(netBridgedAdapter: netBridgedAdapter, isHeadless: isHeadless)
             }
             group.addTask {
-                return try await self.connect(to: self.virtualMachine)
+                return try await self.connect(to: self.virtualMachine, shouldUseArpResolver: netBridgedAdapter != nil)
             }
             for try await result in group {
                 switch result {
@@ -89,8 +92,8 @@ public final class SSHConnectingVirtualMachine<SSHClientType: SSHClient>: Virtua
         }
     }
 
-    public func clone(named newName: String) async throws -> VirtualMachine {
-        let virtualMachine = try await virtualMachine.clone(named: newName)
+    public func clone(named newName: String, isInsecure: Bool) async throws -> VirtualMachine {
+        let virtualMachine = try await virtualMachine.clone(named: newName, isInsecure: isInsecure)
         return SSHConnectingVirtualMachine(
             logger: logger,
             virtualMachine: virtualMachine,
@@ -98,19 +101,30 @@ public final class SSHConnectingVirtualMachine<SSHClientType: SSHClient>: Virtua
         )
     }
 
+    public func setCpu(_ cpu: Int) async throws {
+        try await virtualMachine.setCpu(cpu)
+    }
+
+    public func setMemory(_ memory: Int) async throws {
+        try await virtualMachine.setMemory(memory)
+    }
+
     public func delete() async throws {
         try await virtualMachine.delete()
     }
 
-    public func getIPAddress() async throws -> String {
-        try await virtualMachine.getIPAddress()
+    public func getIPAddress(shouldUseArpResolver: Bool) async throws -> String {
+        try await virtualMachine.getIPAddress(shouldUseArpResolver: shouldUseArpResolver)
     }
 }
 
 private extension SSHConnectingVirtualMachine {
-    private func startVirtualMachine() async throws -> StartVirtualMachineResult {
+    private func startVirtualMachine(
+        netBridgedAdapter: String?,
+        isHeadless: Bool
+    ) async throws -> StartVirtualMachineResult {
         do {
-            try await self.virtualMachine.start()
+            try await self.virtualMachine.start(netBridgedAdapter: netBridgedAdapter, isHeadless: isHeadless)
             return .success(.virtualMachineTerminated)
         } catch {
             if error is CancellationError {
@@ -121,9 +135,12 @@ private extension SSHConnectingVirtualMachine {
         }
     }
 
-    private func connect(to virtualMachine: VirtualMachine) async throws -> StartVirtualMachineResult {
+    private func connect(
+        to virtualMachine: VirtualMachine,
+        shouldUseArpResolver: Bool
+    ) async throws -> StartVirtualMachineResult {
         do {
-            let connection = try await sshClient.connect(to: virtualMachine)
+            let connection = try await sshClient.connect(to: virtualMachine, shouldUseArpResolver: shouldUseArpResolver)
             try await connection.close()
             return .success(.sshConnectionCompleted)
         } catch {

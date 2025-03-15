@@ -1,6 +1,6 @@
 import SSHDomain
 
-public struct PostBootScriptSSHConnectionHandler: VirtualMachineSSHConnectionHandler {
+public final class PostBootScriptSSHConnectionHandler: VirtualMachineSSHConnectionHandler {
     public init() {}
 
     public func didConnect(to virtualMachine: VirtualMachine, through connection: SSHConnection) async throws {
