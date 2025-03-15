@@ -16,7 +16,7 @@ private enum URLSessionNetworkingServiceError: LocalizedError {
     }
 }
 
-public struct URLSessionNetworkingService: NetworkingService {
+public final class URLSessionNetworkingService: NetworkingService {
     private let logger: Logger
     private let session: URLSession
     private let decoder: JSONDecoder

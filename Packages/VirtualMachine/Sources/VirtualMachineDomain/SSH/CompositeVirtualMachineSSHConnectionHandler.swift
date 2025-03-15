@@ -1,6 +1,6 @@
 import SSHDomain
 
-public struct CompositeVirtualMachineSSHConnectionHandler: VirtualMachineSSHConnectionHandler {
+public final class CompositeVirtualMachineSSHConnectionHandler: VirtualMachineSSHConnectionHandler {
     private let handlers: [VirtualMachineSSHConnectionHandler]
 
     public init(_ handlers: [VirtualMachineSSHConnectionHandler]) {

@@ -1,13 +1,13 @@
 import ShellDomain
 
-public struct Tart {
+public final class Tart {
     private let homeProvider: TartHomeProvider
     private let shell: Shell
     private var environment: [String: String]? {
-        guard let homeFolderURL = homeProvider.homeFolderURL else {
+        guard let homeFolderUrl = homeProvider.homeFolderUrl else {
             return nil
         }
-        return ["TART_HOME": homeFolderURL.absoluteString]
+        return ["TART_HOME": homeFolderUrl.path(percentEncoded: false)]
     }
 
     public init(homeProvider: TartHomeProvider, shell: Shell) {
@@ -15,15 +15,45 @@ public struct Tart {
         self.shell = shell
     }
 
-    public func clone(sourceName: String, newName: String) async throws {
-        try await executeCommand(withArguments: ["clone", sourceName, newName])
+    public func pull(sourceName: String, isInsecure: Bool) async throws {
+        var arguments: [String] = ["pull", sourceName]
+        if isInsecure {
+            arguments.append("--insecure")
+        }
+        try await executeCommand(withArguments: arguments)
     }
 
-    public func run(name: String) async throws {
-        try await executeCommand(withArguments: ["run", name])
+    public func setCpu(name: String, cpu: Int) async throws {
+        let arguments: [String] = ["set", name, "--cpu=\(cpu)"]
+        try await executeCommand(withArguments: arguments)
+    }
+
+    public func setMemory(name: String, memory: Int) async throws {
+        let arguments: [String] = ["set", name, "--memory=\(memory)"]
+        try await executeCommand(withArguments: arguments)
+    }
+
+    public func clone(sourceName: String, newName: String, isInsecure: Bool) async throws {
+        var arguments: [String] = ["clone", sourceName, newName]
+        if isInsecure {
+            arguments.append("--insecure")
+        }
+        try await executeCommand(withArguments: arguments)
+    }
+
+    public func run(name: String, netBridgedAdapter: String?, isHeadless: Bool) async throws {
+        var arguments: [String] = ["run", name]
+        if let netBridgedAdapter {
+            arguments.append("--net-bridged=\(netBridgedAdapter)")
+        }
+        if isHeadless {
+            arguments.append("--no-graphics")
+        }
+        try await executeCommand(withArguments: arguments)
     }
 
     public func delete(name: String) async throws {
+        _ = try? await executeCommand(withArguments: ["stop", name])
         try await executeCommand(withArguments: ["delete", name])
     }
 
@@ -32,8 +62,14 @@ public struct Tart {
         return result.split(separator: "\n").map(String.init)
     }
 
-    public func getIPAddress(ofVirtualMachineNamed name: String) async throws -> String {
-        let result = try await executeCommand(withArguments: ["ip", name])
+    public func getIPAddress(ofVirtualMachineNamed name: String, shouldUseArpResolver: Bool) async throws -> String {
+        let arguments: [String]
+        if shouldUseArpResolver {
+            arguments = ["ip", "--resolver=arp", name]
+        } else {
+            arguments = ["ip", name]
+        }
+        let result = try await executeCommand(withArguments: arguments)
         return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: [tartelet, "10.0.2.54:5000/tart/macos-tahoe-xcode:v26.0.1", "memory:24576", "cpu:6"]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-tags: true
+          fetch-depth: 0
+      - name: Set up homebrew
+        id: set-up-homebrew
+        uses: Homebrew/actions/setup-homebrew@master
+      - name: Run swift build
+        run: swift build -c release
+      - name: Create builds directory
+        run: mkdir -p builds
+      - name: Copy executables to builds directory
+        run: |
+          cp .build/release/tart-executor builds/
+          cp .build/release/tart-router builds/
+      - name: Zip tart-executor
+        run: zip -j builds/tart-executor.zip builds/tart-executor
+      - name: Zip tart-router
+        run: zip -j builds/tart-router.zip builds/tart-router
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            builds/tart-executor.zip
+            builds/tart-router.zip
+      - name: Update homebrew tart-executor
+        uses: mislav/bump-homebrew-formula-action@v3
+        with:
+          formula-name: tart-executor
+          download-url: https://github.com/bludesign/tart-executor/releases/download/${{ github.ref_name }}/tart-executor.zip
+          homebrew-tap: bludesign/homebrew-tart
+          create-pullrequest: false
+          create-branch: false
+        env:
+          COMMITTER_TOKEN: ${{ secrets.COMMITTER_TOKEN }}
+      - name: Update homebrew tart-router
+        uses: mislav/bump-homebrew-formula-action@v3
+        with:
+          formula-name: tart-router
+          download-url: https://github.com/bludesign/tart-executor/releases/download/${{ github.ref_name }}/tart-router.zip
+          homebrew-tap: bludesign/homebrew-tart
+          create-pullrequest: false
+          create-branch: false
+        env:
+          COMMITTER_TOKEN: ${{ secrets.COMMITTER_TOKEN }}

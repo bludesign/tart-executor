@@ -5,6 +5,12 @@ excluded:
   - Packages/Settings/Sources/SettingsUI/Internal/L10n.swift
   - "**/.build"
   - "**/.index-build"
+disabled_rules:
+  - line_length
+  - function_parameter_count
+  - function_body_length
+  - cyclomatic_complexity
+  - conditional_returns_on_newline
 opt_in_rules:
   - anonymous_argument_in_multiline_closure
   - array_init
@@ -19,7 +25,6 @@ opt_in_rules:
   - discouraged_assert
   - discouraged_none_name
   - discouraged_object_literal
-  - discouraged_optional_boolean
   - empty_collection_literal
   - empty_count
   - empty_string
