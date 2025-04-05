@@ -9,6 +9,8 @@ public final class Environment: TartHomeProvider,
                          VirtualMachineSSHCredentialsStore,
                          GitHubCredentialsStore {
     public let hostname: String
+    public let cpuLimit: Int
+    public let totalMemory: Int
     public let organizationName: String?
     public let repositoryName: String?
     public let ownerName: String?
@@ -27,8 +29,9 @@ public final class Environment: TartHomeProvider,
     public let isInsecure: Bool
     public let insecureDomains: [String]
     public let webhookPort: Int
-    public let defaultMemory: Int?
+    public let routerUrl: String?
     public let defaultCpu: Int?
+    public let defaultMemory: Int?
 
     public init() throws {
         let configUrl = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("tart-executor.yaml")
@@ -36,6 +39,8 @@ public final class Environment: TartHomeProvider,
         let environmentYaml = try YAMLDecoder().decode(EnvironmentYaml.self, from: contents)
 
         hostname = environmentYaml.hostname
+        cpuLimit = environmentYaml.cpuLimit
+        totalMemory = environmentYaml.totalMemory
         organizationName = environmentYaml.github.organizationName
         repositoryName = environmentYaml.github.repositoryName
         ownerName = environmentYaml.github.ownerName
@@ -54,7 +59,8 @@ public final class Environment: TartHomeProvider,
         isInsecure = environmentYaml.tart.isInsecure ?? false
         insecureDomains = environmentYaml.tart.insecureDomains ?? []
         webhookPort = environmentYaml.webhook.port
-        defaultMemory = environmentYaml.tart.defaultMemory
+        routerUrl = environmentYaml.webhook.routerUrl
         defaultCpu = environmentYaml.tart.defaultCpu
+        defaultMemory = environmentYaml.tart.defaultMemory
     }
 }

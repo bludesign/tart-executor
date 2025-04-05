@@ -29,6 +29,10 @@ Create config file in home directory named `tart-executor.yaml`
 ```yaml
 # Host name for metrics and logs (requried)
 hostname: server
+# Max CPUs to use (requried)
+cpuLimit: 10
+# Total memory in MB binary used only for metrics endpoint (requried)
+totalMemory: 16384
 tart:
   # Custom home folder to use for Tart if you use an external drive you will need to allow access when the dialog shows up (optional)
   homeFolder: /Volumes/Files/tart
@@ -66,6 +70,8 @@ runner:
 webhook:
   # Port to listen for webhook calls (required)
   port: 3250
+  # URL for tart-router no trailing slash only needed if using tart-router
+  routerUrl: http://10.0.4.1:3251
 ```
 
 Run by typing `tart-executor` into terminal.
@@ -84,15 +90,22 @@ Create config file in home directory named `tart-router.yaml`
 ```yaml
 # Host name for metrics and logs (requried)
 hostname: macbook-router
-# Runner label to look for in Github action job labels (required)
+# Runner label to look for in Github action job labels should match the tart-executors (required)
 label: tartelet
 # Port to listen on for Github webhook calls (required)
 port: 3251
 # Array of tart-executor hosts to forward Github action jobs to (required)
 hosts:
+    # Hostname set in config for tart-executor (required)
   - hostname: server-1
+    # URL for tart-executor no trailing slash (required)
     url: http://127.0.0.1:3250
+    # Priority to send jobs to host (required)
     priority: 0
+    # Don't send jobs needing more CPU then this limit (optional)
+    cpuLimit: 5
+    # Don't send jobs needing more memory then this limit. Memory in MB binary (optional)
+    memoryLimit: 8192
   - hostname: server-2
     url: http://10.0.4.2:3250
     priority: 1

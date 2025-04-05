@@ -6,7 +6,7 @@ public protocol VirtualMachineProvider: AnyObject {
         name: String,
         runnerLabels: String?,
         isInsecure: Bool,
-        memory: String?,
-        cpu: String?
+        cpu: Int?,
+        memory: Int?
     ) async throws -> VirtualMachine
 }

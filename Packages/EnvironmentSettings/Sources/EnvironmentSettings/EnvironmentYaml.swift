@@ -9,6 +9,8 @@ struct EnvironmentYaml: Decodable {
     let runner: Runner
     let webhook: Webhook
     let hostname: String
+    let cpuLimit: Int
+    let totalMemory: Int
 }
 
 // MARK: - Tark
@@ -64,5 +66,6 @@ extension EnvironmentYaml {
 extension EnvironmentYaml {
     struct Webhook: Decodable {
         let port: Int
+        let routerUrl: String?
     }
 }

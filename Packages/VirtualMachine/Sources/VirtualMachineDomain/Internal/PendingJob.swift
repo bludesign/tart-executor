@@ -7,8 +7,8 @@ final class PendingJob: Identifiable {
     let netBridgedAdapter: String?
     let isInsecure: Bool
     let isHeadless: Bool
-    let memory: String?
-    let cpu: String?
+    let cpu: Int?
+    let memory: Int?
     var didStart = false
 
     var id: Int {
@@ -19,13 +19,21 @@ final class PendingJob: Identifiable {
         workflowJob.action
     }
 
-    init(workflowJob: WorkflowJob, imageName: String, netBridgedAdapter: String?, isInsecure: Bool, isHeadless: Bool, memory: String?, cpu: String?) {
+    init(
+        workflowJob: WorkflowJob,
+        imageName: String,
+        netBridgedAdapter: String?,
+        isInsecure: Bool,
+        isHeadless: Bool,
+        cpu: Int?,
+        memory: Int?
+    ) {
         self.workflowJob = workflowJob
         self.imageName = imageName
         self.netBridgedAdapter = netBridgedAdapter
         self.isInsecure = isInsecure
         self.isHeadless = isHeadless
-        self.memory = memory
         self.cpu = cpu
+        self.memory = memory
     }
 }

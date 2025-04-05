@@ -26,7 +26,12 @@ enum Composers {
 
     static let fleetWebhook = VirtualMachineFleetWebhook(
         logger: logger(subsystem: "VirtualMachineFleetWebhook"),
-        webhookServer: WebhookServer(hostname: environment.hostname, numberOfMachines: environment.numberOfMachines),
+        webhookServer: WebhookServer(
+            hostname: environment.hostname,
+            numberOfMachines: environment.numberOfMachines,
+            cpuLimit: environment.cpuLimit,
+            totalMemory: environment.totalMemory
+        ),
         virtualMachineProvider: TartVirtualMachineProvider(
             logger: logger(subsystem: "TartVirtualMachineProvider"),
             tart: tart,

@@ -7,10 +7,19 @@ import WebServer
 let environment = try RouterEnvironment()
 
 let hosts: [TartHost] = environment.hosts.map { tartHost in
-    .init(hostname: tartHost.hostname, url: tartHost.url, priority: tartHost.priority)
+    .init(hostname: tartHost.hostname, url: tartHost.url, priority: tartHost.priority, cpuLimit: tartHost.cpuLimit, memoryLimit: tartHost.memoryLimit)
 }
 
-let server = RouterServer(hosts: hosts, logger: ConsoleLogger(subsystem: "RouterServer"))
+let labelsArray = environment.labels.components(separatedBy: ",").map { label in
+    label.trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+let server = RouterServer(
+    hosts: hosts,
+    labels: .init(labelsArray),
+    hostname: environment.hostname,
+    logger: ConsoleLogger(subsystem: "RouterServer")
+)
 
 Task {
     try await server.run(port: environment.port)

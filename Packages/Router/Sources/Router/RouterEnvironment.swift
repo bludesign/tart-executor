@@ -5,6 +5,7 @@ import Yams
 
 public struct RouterEnvironment: Decodable {
     public let hostname: String
+    public let labels: String
     public let port: Int
     public let hosts: [TartHost]
 
@@ -22,5 +23,7 @@ public extension RouterEnvironment {
         public let hostname: String
         public let url: URL
         public let priority: Int
+        public let cpuLimit: Int?
+        public let memoryLimit: Int?
     }
 }

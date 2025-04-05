@@ -23,13 +23,13 @@ public final class Tart {
         try await executeCommand(withArguments: arguments)
     }
 
-    public func setMemory(name: String, memory: String) async throws {
-        let arguments: [String] = ["set", name, "--memory=\(memory)"]
+    public func setCpu(name: String, cpu: Int) async throws {
+        let arguments: [String] = ["set", name, "--cpu=\(cpu)"]
         try await executeCommand(withArguments: arguments)
     }
 
-    public func setCpu(name: String, cpu: String) async throws {
-        let arguments: [String] = ["set", name, "--cpu=\(cpu)"]
+    public func setMemory(name: String, memory: Int) async throws {
+        let arguments: [String] = ["set", name, "--memory=\(memory)"]
         try await executeCommand(withArguments: arguments)
     }
 

@@ -5,6 +5,8 @@ import WebServer
 struct ActiveJob {
     let labels: Set<String>
     let task: Task<(), Never>
+    let cpu: Int?
+    let memory: Int?
 }
 
 actor JobHandler {
@@ -12,11 +14,13 @@ actor JobHandler {
     private var activeJobs = [UUID: ActiveJob]()
     private var inProgressJobs = [Int: PendingJob]()
     private var pendingJobs = [Int: PendingJob]()
+    private nonisolated let routerUrl: String?
     private nonisolated let virtualMachineProvider: VirtualMachineProvider
     private nonisolated let webhookServer: WebhookServer
     private nonisolated let logger: Logger
 
-    init(virtualMachineProvider: VirtualMachineProvider, webhookServer: WebhookServer, logger: Logger) {
+    init(routerUrl: String?, virtualMachineProvider: VirtualMachineProvider, webhookServer: WebhookServer, logger: Logger) {
+        self.routerUrl = routerUrl
         self.virtualMachineProvider = virtualMachineProvider
         self.webhookServer = webhookServer
         self.logger = logger
@@ -102,8 +106,8 @@ actor JobHandler {
                     name: "tartelet-temp-\(uuid.uuidString)",
                     runnerLabels: runnerLabels,
                     isInsecure: pendingJob.isInsecure,
-                    memory: pendingJob.memory,
-                    cpu: pendingJob.cpu
+                    cpu: pendingJob.cpu,
+                    memory: pendingJob.memory
                 )
 
                 func delete() async throws {
@@ -147,7 +151,7 @@ actor JobHandler {
         }
 
         activeJobs[uuid]?.task.cancel()
-        activeJobs[uuid] = .init(labels: pendingJob.workflowJob.labels, task: task)
+        activeJobs[uuid] = .init(labels: pendingJob.workflowJob.labels, task: task, cpu: pendingJob.cpu, memory: pendingJob.memory)
         updateStats()
     }
 
@@ -157,6 +161,9 @@ actor JobHandler {
         if activeJobs.count < numberOfMachines, let pendingJob = pendingJobs.first(where: { !$0.value.didStart })?.value {
             start(pendingJob: pendingJob)
         }
+        Task {
+           await activeJobEnded()
+        }
     }
 
     private func updateStats() {
@@ -164,5 +171,18 @@ actor JobHandler {
         webhookServer.inProgressJobs = inProgressJobs.count
         webhookServer.startedPendingJobs = pendingJobs.filter { $1.didStart }.count
         webhookServer.virtualMachines = activeJobs.count
+        webhookServer.cpuUsed = activeJobs.reduce(0) { $0 + ($1.value.cpu ?? 0) }
+        webhookServer.memoryUsed = activeJobs.reduce(0) { $0 + ($1.value.memory ?? 0) }
+    }
+
+    private func activeJobEnded() async {
+        guard let routerUrl = routerUrl.flatMap({ URL(string: $0) }) else { return }
+        var request = URLRequest(url: routerUrl)
+        request.httpMethod = "POST"
+        do {
+            _ = try await URLSession.shared.data(for: request)
+        } catch {
+            logger.error("Error calling router: \(error)")
+        }
     }
 }

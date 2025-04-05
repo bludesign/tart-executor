@@ -5,6 +5,8 @@ import Foundation
 public final class WebhookServer {
     private let hostname: String
     private let numberOfMachines: Int
+    private let cpuLimit: Int
+    private let totalMemory: Int
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
     private let workflowJobSubject = PassthroughSubject<WorkflowJob, Never>()
@@ -14,14 +16,18 @@ public final class WebhookServer {
     public var pendingJobs = 0
     public var startedPendingJobs = 0
     public var virtualMachines = 0
+    public var cpuUsed = 0
+    public var memoryUsed = 0
 
     public var workflowJobPublisher: AnyPublisher<WorkflowJob, Never> {
         workflowJobSubject.eraseToAnyPublisher()
     }
 
-    public init(hostname: String, numberOfMachines: Int) {
+    public init(hostname: String, numberOfMachines: Int, cpuLimit: Int, totalMemory: Int) {
         self.hostname = hostname
         self.numberOfMachines = numberOfMachines
+        self.cpuLimit = cpuLimit
+        self.totalMemory = totalMemory
     }
 
     public func run(port: Int) async throws {
@@ -55,6 +61,10 @@ tart_executor_pending_jobs\(labels) \(pendingJobs)
 tart_executor_started_pending_jobs\(labels) \(startedPendingJobs)
 tart_executor_virtual_machines\(labels) \(virtualMachines)
 tart_executor_virtual_machine_limit\(labels) \(numberOfMachines)
+tart_executor_cpu_limit\(labels) \(cpuLimit)
+tart_executor_cpu_used\(labels) \(cpuUsed)
+tart_executor_total_memory\(labels) \(totalMemory)
+tart_executor_memory_used\(labels) \(memoryUsed)
 """
             let data = Data(string.utf8)
             return .init(statusCode: .ok, body: data)
@@ -69,7 +79,11 @@ tart_executor_virtual_machine_limit\(labels) \(numberOfMachines)
                 pendingJobs: pendingJobs,
                 startedPendingJobs: startedPendingJobs,
                 activeVirtualMachines: virtualMachines,
-                virtualMachineLimit: numberOfMachines
+                virtualMachineLimit: numberOfMachines,
+                cpuLimit: cpuLimit,
+                cpuUsed: cpuUsed,
+                totalMemory: totalMemory,
+                memoryUsed: memoryUsed
             )
 
             let body = try encoder.encode(status)

@@ -7,12 +7,13 @@ public protocol VirtualMachineFleetSettings {
     var numberOfMachines: Int { get }
     var runnerLabels: String { get }
     var webhookPort: Int { get }
+    var routerUrl: String? { get }
     var isHeadless: Bool { get }
     var isInsecure: Bool { get }
     var insecureDomains: [String] { get }
     var netBridgedAdapter: String? { get }
-    var defaultMemory: Int? { get }
     var defaultCpu: Int? { get }
+    var defaultMemory: Int? { get }
 }
 
 public final class VirtualMachineFleetWebhook {
@@ -23,7 +24,7 @@ public final class VirtualMachineFleetWebhook {
     private let webhookServer: WebhookServer
     private var webhookServerTask: Task<(), any Error>?
     private let jobHandler: JobHandler
-    private var gitHubRunnerLabels: Set<String>?
+    private var gitHubRunnerLabels: Set<String>
     private var cancellables = Set<AnyCancellable>()
     private let settings: VirtualMachineFleetSettings
 
@@ -36,6 +37,7 @@ public final class VirtualMachineFleetWebhook {
         }
         gitHubRunnerLabels = Set<String>(labelsArray)
         jobHandler = .init(
+            routerUrl: settings.routerUrl,
             virtualMachineProvider: virtualMachineProvider,
             webhookServer: webhookServer,
             logger: logger
@@ -92,40 +94,17 @@ public final class VirtualMachineFleetWebhook {
 
 private extension VirtualMachineFleetWebhook {
     func handleWorkflowJob(_ workflowJob: WorkflowJob) async {
-        guard let gitHubRunnerLabels else {
-            logger.error("Workflow job skipped no runner labels set.")
-            return
-        }
-
         guard gitHubRunnerLabels.isSubset(of: workflowJob.labels) else {
             logger.error("Workflow job skipped because of labels. Job labels: \(workflowJob.labels) Tart labels: \(gitHubRunnerLabels)")
             return
         }
 
-        let workflowSet = workflowJob.labels.subtracting(gitHubRunnerLabels)
+        let cpu = workflowJob.cpu ?? settings.defaultCpu
+        let memory = workflowJob.memory ?? settings.defaultMemory
+        let workflowSet = workflowJob.filteredLabels.subtracting(gitHubRunnerLabels)
 
-        let memoryLabels = workflowSet.filter { label in
-            label.starts(with: "memory:")
-        }
-        guard memoryLabels.count <= 1 else {
-            logger.error("Workflow job skipped extra memory labels found: \(memoryLabels)")
-            return
-        }
-        let memoryLabel = memoryLabels.first?.components(separatedBy: ":").last
-
-        let cpuLabels = workflowSet.filter { label in
-            label.starts(with: "cpu:")
-        }
-        guard cpuLabels.count <= 1 else {
-            logger.error("Workflow job skipped extra cpu labels found: \(memoryLabels)")
-            return
-        }
-        let cpuLabel = cpuLabels.first?.components(separatedBy: ":").last
-
-        let imageNameSet = workflowSet.subtracting(memoryLabels).subtracting(cpuLabels)
-
-        guard imageNameSet.count == 1, let imageName = imageNameSet.first else {
-            logger.error("Workflow job skipped extra labels found: \(imageNameSet)")
+        guard workflowSet.count == 1, let imageName = workflowSet.first else {
+            logger.error("Workflow job skipped extra labels found: \(workflowSet)")
             return
         }
 
@@ -143,8 +122,8 @@ private extension VirtualMachineFleetWebhook {
             netBridgedAdapter: settings.netBridgedAdapter,
             isInsecure: isJobInsecure,
             isHeadless: settings.isHeadless,
-            memory: memoryLabel ?? settings.defaultMemory.map { "\($0)" },
-            cpu: cpuLabel ?? settings.defaultCpu.map { "\($0)" }
+            cpu: cpu,
+            memory: memory
         )
         await jobHandler.handle(pendingJob: pendingJob)
     }
