@@ -40,7 +40,7 @@ jobs:
         uses: mislav/bump-homebrew-formula-action@v3
         with:
           formula-name: tart-executor
-          download-url: https://github.com/bludesign/tartelet/releases/download/${{ github.ref_name }}/tart-executor.zip
+          download-url: https://github.com/bludesign/tart-executor/releases/download/${{ github.ref_name }}/tart-executor.zip
           homebrew-tap: bludesign/homebrew-tart
           create-pullrequest: false
           create-branch: false
@@ -50,7 +50,7 @@ jobs:
         uses: mislav/bump-homebrew-formula-action@v3
         with:
           formula-name: tart-router
-          download-url: https://github.com/bludesign/tartelet/releases/download/${{ github.ref_name }}/tart-router.zip
+          download-url: https://github.com/bludesign/tart-executor/releases/download/${{ github.ref_name }}/tart-router.zip
           homebrew-tap: bludesign/homebrew-tart
           create-pullrequest: false
           create-branch: false
