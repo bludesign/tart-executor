@@ -59,11 +59,13 @@ public final class RouterServer {
                 let pendingJobsUnsent = await jobHandler.pendingJobsUnsent
                 let pendingJobsQueued = await jobHandler.pendingJobsQueued
                 let availableVirtualMachines = await jobHandler.availableVirtualMachines
+                let availableHosts = await jobHandler.availableHosts
 
                 results.append("tart_router_pending_jobs{hostname=\"\(hostname)\"} \(pendingJobs)")
                 results.append("tart_router_pending_jobs_unsent{hostname=\"\(hostname)\"} \(pendingJobsUnsent)")
                 results.append("tart_router_pending_jobs_queued{hostname=\"\(hostname)\"} \(pendingJobsQueued)")
                 results.append("tart_router_available_virtual_machines{hostname=\"\(hostname)\"} \(availableVirtualMachines)")
+                results.append("tart_router_available_hosts{hostname=\"\(hostname)\"} \(availableHosts)")
 
                 return results
             }

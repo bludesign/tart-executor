@@ -23,6 +23,10 @@ actor JobHandler {
         hosts.reduce(0) { $0 + (($1.lastStatus?.virtualMachineLimit ?? 0) - ($1.lastStatus?.activeVirtualMachines ?? 0)) }
     }
 
+    var availableHosts: Int {
+        hosts.reduce(0) { $0 + ($1.lastStatus != nil ? 1 : 0) }
+    }
+
     init(hosts: [TartHost], logger: Logger) {
         self.hosts = hosts
         self.logger = logger
