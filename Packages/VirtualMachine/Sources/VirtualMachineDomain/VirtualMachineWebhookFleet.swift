@@ -18,9 +18,6 @@ public protocol VirtualMachineFleetSettings {
 }
 
 public final class VirtualMachineFleetWebhook {
-    public private(set) var isStarted = false
-    public private(set) var isStopping = false
-
     private let logger: Logger
     private let webhookServer: WebhookServer
     private var webhookServerTask: Task<(), any Error>?
@@ -40,21 +37,10 @@ public final class VirtualMachineFleetWebhook {
         jobHandler = .init(
             routerUrl: settings.routerUrl,
             virtualMachineProvider: virtualMachineProvider,
-            webhookServer: webhookServer,
             logger: logger
         )
 
-        webhookServer.workflowJobPublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] workflowJob in
-                Task { [weak self] in
-                    guard let self, isStarted else {
-                        return
-                    }
-                    await handleWorkflowJob(workflowJob)
-                }
-            }
-            .store(in: &cancellables)
+        webhookServer.fleetHandler = self
 
         Task {
             await jobHandler.set(numberOfMachines: settings.numberOfMachines)
@@ -71,38 +57,16 @@ public final class VirtualMachineFleetWebhook {
 
     public func startCommandLine() async throws {
         logger.info("Starting web server on port: \(settings.webhookPort) numberOfMachines: \(settings.numberOfMachines)")
-        isStarted = true
         try await webhookServer.run(port: settings.webhookPort)
-    }
-
-    public func stopImmediately() {
-        logger.info("Stop webhook immediately")
-        isStarted = false
-        isStopping = false
-        webhookServerTask?.cancel()
-        Task {
-            await jobHandler.cancelAll()
-        }
-    }
-
-    public func stop() {
-        guard isStarted else {
-            return
-        }
-        logger.info("Stop webhook")
-        isStopping = true
-        Task {
-            await webhookServer.stop()
-            webhookServerTask?.cancel()
-            await jobHandler.cancelAll()
-            isStopping = false
-            isStarted = false
-        }
     }
 }
 
-private extension VirtualMachineFleetWebhook {
-    func handleWorkflowJob(_ workflowJob: WorkflowJob) async {
+extension VirtualMachineFleetWebhook: FleetHandler {
+    public func getJobStatus() async -> JobStatus {
+        await jobHandler.jobStatus
+    }
+
+    public func handleWorkflowJob(_ workflowJob: WorkflowJob) async {
         guard gitHubRunnerLabels.isSubset(of: workflowJob.labels) else {
             logger.error("Workflow job skipped because of labels. Job labels: \(workflowJob.labels) Tart labels: \(gitHubRunnerLabels)")
             return

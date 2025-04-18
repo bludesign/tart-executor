@@ -2,6 +2,29 @@ import Combine
 import FlyingFox
 import Foundation
 
+public protocol FleetHandler: AnyObject {
+    func getJobStatus() async -> JobStatus
+    func handleWorkflowJob(_ workflowJob: WorkflowJob) async
+}
+
+public struct JobStatus {
+    public let inProgressJobs: Int
+    public let pendingJobs: Int
+    public let startedPendingJobs: Int
+    public let virtualMachines: Int
+    public let cpuUsed: Int
+    public let memoryUsed: Int
+
+    public init(inProgressJobs: Int, pendingJobs: Int, startedPendingJobs: Int, virtualMachines: Int, cpuUsed: Int, memoryUsed: Int) {
+        self.inProgressJobs = inProgressJobs
+        self.pendingJobs = pendingJobs
+        self.startedPendingJobs = startedPendingJobs
+        self.virtualMachines = virtualMachines
+        self.cpuUsed = cpuUsed
+        self.memoryUsed = memoryUsed
+    }
+}
+
 public final class WebhookServer {
     private let hostname: String
     private let numberOfMachines: Int
@@ -9,19 +32,8 @@ public final class WebhookServer {
     private let totalMemory: Int
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
-    private let workflowJobSubject = PassthroughSubject<WorkflowJob, Never>()
     private var server: HTTPServer?
-
-    public var inProgressJobs = 0
-    public var pendingJobs = 0
-    public var startedPendingJobs = 0
-    public var virtualMachines = 0
-    public var cpuUsed = 0
-    public var memoryUsed = 0
-
-    public var workflowJobPublisher: AnyPublisher<WorkflowJob, Never> {
-        workflowJobSubject.eraseToAnyPublisher()
-    }
+    public weak var fleetHandler: FleetHandler?
 
     public init(hostname: String, numberOfMachines: Int, cpuLimit: Int, totalMemory: Int) {
         self.hostname = hostname
@@ -44,7 +56,7 @@ public final class WebhookServer {
                     action: webhookResponse.action,
                     labels: webhookResponse.workflow_job.labels
                 )
-                workflowJobSubject.send(workflowJob)
+                await fleetHandler?.handleWorkflowJob(workflowJob)
             } catch {
                 throw error
             }
@@ -62,46 +74,46 @@ public final class WebhookServer {
                     action: .routerStart,
                     labels: webhookResponse.workflow_job.labels
                 )
-                workflowJobSubject.send(workflowJob)
+                await fleetHandler?.handleWorkflowJob(workflowJob)
             } catch {
                 throw error
             }
             return .init(statusCode: .ok)
         }
         await server.appendRoute("GET /metrics") { [weak self] _ in
-            guard let self else {
+            guard let self, let jobStatus = await fleetHandler?.getJobStatus() else {
                 return .init(statusCode: .badGateway)
             }
             let labels = "{hostname=\"\(hostname)\"}"
             let string = """
-tart_executor_in_progress_jobs\(labels) \(inProgressJobs)
-tart_executor_pending_jobs\(labels) \(pendingJobs)
-tart_executor_started_pending_jobs\(labels) \(startedPendingJobs)
-tart_executor_virtual_machines\(labels) \(virtualMachines)
+tart_executor_in_progress_jobs\(labels) \(jobStatus.inProgressJobs)
+tart_executor_pending_jobs\(labels) \(jobStatus.pendingJobs)
+tart_executor_started_pending_jobs\(labels) \(jobStatus.startedPendingJobs)
+tart_executor_virtual_machines\(labels) \(jobStatus.virtualMachines)
 tart_executor_virtual_machine_limit\(labels) \(numberOfMachines)
 tart_executor_cpu_limit\(labels) \(cpuLimit)
-tart_executor_cpu_used\(labels) \(cpuUsed)
+tart_executor_cpu_used\(labels) \(jobStatus.cpuUsed)
 tart_executor_total_memory\(labels) \(totalMemory)
-tart_executor_memory_used\(labels) \(memoryUsed)
+tart_executor_memory_used\(labels) \(jobStatus.memoryUsed)
 """
             let data = Data(string.utf8)
             return .init(statusCode: .ok, body: data)
         }
         await server.appendRoute("GET /status") { [weak self] _ in
-            guard let self else {
+            guard let self, let jobStatus = await fleetHandler?.getJobStatus() else {
                 return .init(statusCode: .badGateway)
             }
 
             let status = TartHostStatus(
-                inProgressJobs: inProgressJobs,
-                pendingJobs: pendingJobs,
-                startedPendingJobs: startedPendingJobs,
-                activeVirtualMachines: virtualMachines,
+                inProgressJobs: jobStatus.inProgressJobs,
+                pendingJobs: jobStatus.pendingJobs,
+                startedPendingJobs: jobStatus.startedPendingJobs,
+                activeVirtualMachines: jobStatus.virtualMachines,
                 virtualMachineLimit: numberOfMachines,
                 cpuLimit: cpuLimit,
-                cpuUsed: cpuUsed,
+                cpuUsed: jobStatus.cpuUsed,
                 totalMemory: totalMemory,
-                memoryUsed: memoryUsed
+                memoryUsed: jobStatus.memoryUsed
             )
 
             let body = try encoder.encode(status)

@@ -16,13 +16,22 @@ actor JobHandler {
     private var pendingJobs = [Int: PendingJob]()
     private nonisolated let routerUrl: String?
     private nonisolated let virtualMachineProvider: VirtualMachineProvider
-    private nonisolated let webhookServer: WebhookServer
     private nonisolated let logger: Logger
 
-    init(routerUrl: String?, virtualMachineProvider: VirtualMachineProvider, webhookServer: WebhookServer, logger: Logger) {
+    var jobStatus: JobStatus {
+        .init(
+            inProgressJobs: inProgressJobs.count,
+            pendingJobs: pendingJobs.count,
+            startedPendingJobs: pendingJobs.filter { $1.didStart }.count,
+            virtualMachines: activeJobs.count,
+            cpuUsed: activeJobs.reduce(0) { $0 + ($1.value.cpu ?? 0) },
+            memoryUsed: activeJobs.reduce(0) { $0 + ($1.value.memory ?? 0) }
+        )
+    }
+
+    init(routerUrl: String?, virtualMachineProvider: VirtualMachineProvider, logger: Logger) {
         self.routerUrl = routerUrl
         self.virtualMachineProvider = virtualMachineProvider
-        self.webhookServer = webhookServer
         self.logger = logger
 
         Task {
@@ -39,7 +48,6 @@ actor JobHandler {
         case .routerStart:
             logger.info("Router start job added: \(pendingJob.id)")
 
-            updateStats()
             if activeJobs.count < numberOfMachines {
                 start(pendingJob: pendingJob)
             }
@@ -49,7 +57,6 @@ actor JobHandler {
             logger.info("Pending job added: \(pendingJob.id)")
             pendingJobs[pendingJob.id] = pendingJob
 
-            updateStats()
             if activeJobs.count < numberOfMachines {
                 start(pendingJob: pendingJob)
             }
@@ -62,12 +69,10 @@ actor JobHandler {
                 }?.didStart = false
             }
             inProgressJobs[pendingJob.id] = pendingJob
-            updateStats()
         case .completed:
             logger.info("Completed job added: \(pendingJob.id)")
             inProgressJobs.removeValue(forKey: pendingJob.id)
             guard pendingJobs[pendingJob.id] != nil else {
-                updateStats()
                 return
             }
             pendingJobs.removeValue(forKey: pendingJob.id)
@@ -92,7 +97,6 @@ actor JobHandler {
                     existingJob.workflowJob.labels == pendingJob.workflowJob.labels && !existingJob.didStart
                 }?.didStart = true
             }
-            updateStats()
         case .unknown:
             logger.info("Unknown job added: \(pendingJob.id)")
         }
@@ -163,27 +167,16 @@ actor JobHandler {
 
         activeJobs[uuid]?.task.cancel()
         activeJobs[uuid] = .init(labels: pendingJob.workflowJob.labels, task: task, cpu: pendingJob.cpu, memory: pendingJob.memory)
-        updateStats()
     }
 
     private func remove(uuid: UUID) {
         activeJobs.removeValue(forKey: uuid)
-        updateStats()
         if activeJobs.count < numberOfMachines, let pendingJob = pendingJobs.first(where: { !$0.value.didStart })?.value {
             start(pendingJob: pendingJob)
         }
         Task {
            await activeJobEnded()
         }
-    }
-
-    private func updateStats() {
-        webhookServer.pendingJobs = pendingJobs.count
-        webhookServer.inProgressJobs = inProgressJobs.count
-        webhookServer.startedPendingJobs = pendingJobs.filter { $1.didStart }.count
-        webhookServer.virtualMachines = activeJobs.count
-        webhookServer.cpuUsed = activeJobs.reduce(0) { $0 + ($1.value.cpu ?? 0) }
-        webhookServer.memoryUsed = activeJobs.reduce(0) { $0 + ($1.value.memory ?? 0) }
     }
 
     private func activeJobEnded() async {

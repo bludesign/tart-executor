@@ -45,6 +45,20 @@ actor JobHandler {
     }
 
     func handleJob(job newJob: PendingJob) async {
+        func checkJob(job: PendingJob) {
+            if job.sentToHost == nil {
+                let workflowJob = job.workflowJob
+                guard let existingJob = jobs.values.first(where: { existingJob in
+                    existingJob.id != workflowJob.id && existingJob.workflowJob.labels == workflowJob.labels && existingJob.workflowJob.action == .queued && existingJob.sentToHost != nil
+                }) else {
+                    logger.error("Error no existing job found: \(job)")
+                    return
+                }
+                job.sentToHost = existingJob.sentToHost
+                existingJob.sentToHost = nil
+            }
+        }
+
         await updateStatus(shouldSendJobs: false)
 
         let job: PendingJob
@@ -58,16 +72,8 @@ actor JobHandler {
             }
             job.workflowJob = newJob.workflowJob
         case .completed:
-            if let job = jobs.removeValue(forKey: newJob.id), job.sentToHost == nil {
-                let workflowJob = job.workflowJob
-                guard let existingJob = jobs.values.first(where: { existingJob in
-                    existingJob.id != workflowJob.id && existingJob.workflowJob.labels == workflowJob.labels && existingJob.workflowJob.action == .queued && existingJob.sentToHost != nil
-                }) else {
-                    logger.error("Error no existing job found: \(job)")
-                    return
-                }
-                job.sentToHost = existingJob.sentToHost
-                existingJob.sentToHost = nil
+            if let removedJob = jobs.removeValue(forKey: newJob.id) {
+                checkJob(job: removedJob)
             }
             return
         case .waiting, .unknown, .routerStart:
@@ -80,22 +86,14 @@ actor JobHandler {
             case .queued:
                 try await handleQueuedJob(job: job)
             case .inProgress:
-                if job.sentToHost == nil {
-                    guard let existingJob = jobs.values.first(where: { existingJob in
-                        existingJob.id != workflowJob.id && existingJob.workflowJob.labels == workflowJob.labels && existingJob.workflowJob.action == .queued && existingJob.sentToHost != nil
-                    }) else {
-                        logger.error("Error no existing job found: \(job)")
-                        return
-                    }
-                    job.sentToHost = existingJob.sentToHost
-                    existingJob.sentToHost = nil
-                }
+                checkJob(job: job)
             case .completed, .waiting, .unknown, .routerStart:
                 break
             }
         } catch {
             logger.error("Error handling job: \(job)")
         }
+//        await updateStatus()
     }
 
     @discardableResult
