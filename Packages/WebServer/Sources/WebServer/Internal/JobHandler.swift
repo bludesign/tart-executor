@@ -15,6 +15,14 @@ actor JobHandler {
         jobs.reduce(0) { $0 + ($1.value.sentToHost != nil ? 0 : 1) }
     }
 
+    var pendingJobsQueued: Int {
+        jobs.reduce(0) { $0 + ($1.value.workflowJob.action == .queued ? 1 : 0) }
+    }
+
+    var availableVirtualMachines: Int {
+        hosts.reduce(0) { $0 + (($1.lastStatus?.virtualMachineLimit ?? 0) - ($1.lastStatus?.activeVirtualMachines ?? 0)) }
+    }
+
     init(hosts: [TartHost], logger: Logger) {
         self.hosts = hosts
         self.logger = logger
