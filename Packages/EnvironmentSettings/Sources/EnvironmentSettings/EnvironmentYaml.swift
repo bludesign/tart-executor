@@ -67,5 +67,6 @@ extension EnvironmentYaml {
     struct Webhook: Decodable {
         let port: Int
         let routerUrl: String?
+        let localUrl: String?
     }
 }

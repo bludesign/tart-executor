@@ -8,6 +8,7 @@ public protocol VirtualMachineFleetSettings {
     var runnerLabels: String { get }
     var webhookPort: Int { get }
     var routerUrl: String? { get }
+    var localUrl: String? { get }
     var isHeadless: Bool { get }
     var isInsecure: Bool { get }
     var insecureDomains: [String] { get }
@@ -57,6 +58,14 @@ public final class VirtualMachineFleetWebhook {
 
         Task {
             await jobHandler.set(numberOfMachines: settings.numberOfMachines)
+
+            if let localUrl = settings.routerUrl.flatMap({ URL(string: $0) }) {
+                do {
+                    _ = try await URLSession.shared.data(from: localUrl)
+                } catch {
+                    logger.error("Error calling local url: \(error)")
+                }
+            }
         }
     }
 

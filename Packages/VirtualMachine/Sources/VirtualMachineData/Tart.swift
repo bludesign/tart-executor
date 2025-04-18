@@ -4,10 +4,10 @@ public final class Tart {
     private let homeProvider: TartHomeProvider
     private let shell: Shell
     private var environment: [String: String]? {
-        guard let homeFolderURL = homeProvider.homeFolderURL else {
+        guard let homeFolderUrl = homeProvider.homeFolderUrl else {
             return nil
         }
-        return ["TART_HOME": homeFolderURL.path(percentEncoded: false)]
+        return ["TART_HOME": homeFolderUrl.path(percentEncoded: false)]
     }
 
     public init(homeProvider: TartHomeProvider, shell: Shell) {

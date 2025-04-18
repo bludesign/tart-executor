@@ -74,8 +74,8 @@ Composers.localNetworkPrivacy.checkAccessState { result in
 
 Task {
     // Read contents of home folder to trigger external drive access dialog if needed
-    if let homeFolderURL = environment.homeFolderURL {
-        _ = try? FileManager.default.contentsOfDirectory(at: homeFolderURL, includingPropertiesForKeys: nil)
+    if let homeFolderUrl = environment.homeFolderUrl {
+        _ = try? FileManager.default.contentsOfDirectory(at: homeFolderUrl, includingPropertiesForKeys: nil)
     }
 
     try await Composers.fleetWebhook.startCommandLine()

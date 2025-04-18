@@ -1,5 +1,5 @@
 import Foundation
 
 public protocol TartHomeProvider {
-    var homeFolderURL: URL? { get }
+    var homeFolderUrl: URL? { get }
 }

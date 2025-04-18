@@ -22,7 +22,7 @@ public final class Environment: TartHomeProvider,
     public let runnerScope: GitHubRunnerScope
     public let runnerLabels: String
     public let runnerGroup: String
-    public let homeFolderURL: URL?
+    public let homeFolderUrl: URL?
     public let numberOfMachines: Int
     public let netBridgedAdapter: String?
     public let isHeadless: Bool
@@ -30,6 +30,7 @@ public final class Environment: TartHomeProvider,
     public let insecureDomains: [String]
     public let webhookPort: Int
     public let routerUrl: String?
+    public let localUrl: String?
     public let defaultCpu: Int?
     public let defaultMemory: Int?
 
@@ -52,7 +53,7 @@ public final class Environment: TartHomeProvider,
         runnerScope = environmentYaml.github.runnerScope
         runnerLabels = environmentYaml.runner.labels
         runnerGroup = environmentYaml.runner.group ?? ""
-        homeFolderURL = environmentYaml.tart.homeFolder.map { URL(fileURLWithPath: $0) }
+        homeFolderUrl = environmentYaml.tart.homeFolder.map { URL(fileURLWithPath: $0) }
         numberOfMachines = environmentYaml.tart.numberOfVirtualMachines ?? 1
         netBridgedAdapter = environmentYaml.tart.netBridgedAdapter
         isHeadless = environmentYaml.tart.isHeadless ?? false
@@ -60,6 +61,7 @@ public final class Environment: TartHomeProvider,
         insecureDomains = environmentYaml.tart.insecureDomains ?? []
         webhookPort = environmentYaml.webhook.port
         routerUrl = environmentYaml.webhook.routerUrl
+        localUrl = environmentYaml.webhook.localUrl
         defaultCpu = environmentYaml.tart.defaultCpu
         defaultMemory = environmentYaml.tart.defaultMemory
     }
