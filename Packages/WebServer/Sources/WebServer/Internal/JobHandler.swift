@@ -50,8 +50,12 @@ actor JobHandler {
         let job: PendingJob
         switch newJob.workflowJob.action {
         case .queued, .inProgress:
-            jobs[newJob.id] = newJob
-            job = newJob
+            if let existingJob = jobs[newJob.id] {
+                job = existingJob
+            } else {
+                jobs[newJob.id] = newJob
+                job = newJob
+            }
             job.workflowJob = newJob.workflowJob
         case .completed:
             if let job = jobs.removeValue(forKey: newJob.id), job.sentToHost == nil {
