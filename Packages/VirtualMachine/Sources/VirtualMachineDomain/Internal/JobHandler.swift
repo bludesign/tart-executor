@@ -24,6 +24,10 @@ actor JobHandler {
         self.virtualMachineProvider = virtualMachineProvider
         self.webhookServer = webhookServer
         self.logger = logger
+
+        Task {
+           await activeJobEnded()
+        }
     }
 
     func set(numberOfMachines: Int) {
