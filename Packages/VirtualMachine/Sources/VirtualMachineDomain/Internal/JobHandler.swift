@@ -36,6 +36,13 @@ actor JobHandler {
 
     func handle(pendingJob: PendingJob) {
         switch pendingJob.action {
+        case .routerStart:
+            logger.info("Router start job added: \(pendingJob.id)")
+
+            updateStats()
+            if activeJobs.count < numberOfMachines {
+                start(pendingJob: pendingJob)
+            }
         case .waiting:
             logger.info("Waiting job added: \(pendingJob.id)")
         case .queued:

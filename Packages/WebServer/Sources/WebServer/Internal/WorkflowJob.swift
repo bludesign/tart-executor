@@ -40,6 +40,7 @@ public struct WorkflowJob: Codable, Identifiable, Hashable {
 }
 
 public enum WorkflowAction: String {
+    case routerStart = "router_start"
     case waiting
     case queued
     case inProgress = "in_progress"

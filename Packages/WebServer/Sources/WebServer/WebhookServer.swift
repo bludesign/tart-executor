@@ -50,6 +50,24 @@ public final class WebhookServer {
             }
             return .init(statusCode: .ok)
         }
+        await server.appendRoute("POST /router") { [weak self] request in
+            guard let self else {
+                return .init(statusCode: .badGateway)
+            }
+            do {
+                let bodyData = try await request.bodyData
+                let webhookResponse = try decoder.decode(WebhookResponse.self, from: bodyData)
+                let workflowJob = WorkflowJob(
+                    id: webhookResponse.workflow_job.id,
+                    action: .routerStart,
+                    labels: webhookResponse.workflow_job.labels
+                )
+                workflowJobSubject.send(workflowJob)
+            } catch {
+                throw error
+            }
+            return .init(statusCode: .ok)
+        }
         await server.appendRoute("GET /metrics") { [weak self] _ in
             guard let self else {
                 return .init(statusCode: .badGateway)

@@ -22,7 +22,7 @@ actor JobHandler {
 
     static func sendJob(host: TartHost, job: PendingJob, logger: Logger) async throws {
         logger.info("Sending job: \(job.workflowJob.id) to host: \(host.hostname)")
-        var hostRequest = URLRequest(url: host.url.appending(path: "/"))
+        var hostRequest = URLRequest(url: host.url.appending(path: "/router"))
         hostRequest.httpMethod = "POST"
         hostRequest.httpBody = job.bodyData
         job.headers.forEach { header, value in
@@ -43,7 +43,7 @@ actor JobHandler {
         case .completed:
             jobs.removeValue(forKey: newJob.id)
             return
-        case .waiting, .unknown:
+        case .waiting, .unknown, .routerStart:
             return
         }
         let workflowJob = job.workflowJob
@@ -63,7 +63,7 @@ actor JobHandler {
                     job.sentToHost = existingJob.sentToHost
                     existingJob.sentToHost = nil
                 }
-            case .completed, .waiting, .unknown:
+            case .completed, .waiting, .unknown, .routerStart:
                 break
             }
         } catch {
@@ -77,7 +77,7 @@ actor JobHandler {
         for host in hosts {
             guard let lastStatus = host.lastStatus, job.hostCanRun(host) else { continue }
             let capacity = lastStatus.virtualMachineLimit - lastStatus.totalJobs
-            let hasCapacity = lastStatus.totalJobs < lastStatus.virtualMachineLimit
+            let hasCapacity = lastStatus.activeVirtualMachines < lastStatus.virtualMachineLimit
             if let currentLowestCapacity = lowestCapacityHost {
                 if capacity > currentLowestCapacity.capacity {
                     lowestCapacityHost = (capacity, host)
