@@ -11,7 +11,6 @@ public final class RouterServer {
     private let hostname: String
     private let logger: Logger
     private let jobHandler: JobHandler
-    private var timer: Timer?
 
     public init(hosts: [TartHost], labels: Set<String>, hostname: String, logger: Logger) {
         self.hosts = hosts.sorted { lhs, rhs in
@@ -22,11 +21,6 @@ public final class RouterServer {
         self.hostname = hostname
         jobHandler = .init(hosts: hosts, logger: logger)
 
-        timer = .scheduledTimer(withTimeInterval: Constants.updateInterval, repeats: true) { [weak self] _ in
-            Task {
-                await self?.jobHandler.updateStatus()
-            }
-        }
     }
 
     public func run(port: Int) async throws {

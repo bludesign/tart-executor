@@ -33,7 +33,7 @@ actor JobHandler {
     }
 
     func handleJob(job newJob: PendingJob) async {
-        await updateStatus(sendJobs: false)
+        await updateStatus(shouldSendJobs: false)
 
         let job: PendingJob
         switch newJob.workflowJob.action {
@@ -41,7 +41,17 @@ actor JobHandler {
             job = jobs[newJob.id, default: newJob]
             job.workflowJob = newJob.workflowJob
         case .completed:
-            jobs.removeValue(forKey: newJob.id)
+            if let job = jobs.removeValue(forKey: newJob.id), job.sentToHost == nil {
+                let workflowJob = job.workflowJob
+                guard let existingJob = jobs.values.first(where: { existingJob in
+                    existingJob.id != workflowJob.id && existingJob.workflowJob.labels == workflowJob.labels && existingJob.workflowJob.action == .queued && existingJob.sentToHost != nil
+                }) else {
+                    logger.error("Error no existing job found: \(job)")
+                    return
+                }
+                job.sentToHost = existingJob.sentToHost
+                existingJob.sentToHost = nil
+            }
             return
         case .waiting, .unknown, .routerStart:
             return
@@ -98,7 +108,7 @@ actor JobHandler {
         }
     }
 
-    func updateStatus(sendJobs: Bool = true) async {
+    func updateStatus(shouldSendJobs: Bool = true) async {
         await withTaskGroup(of: Void.self) { [weak self] group in
             guard let self else { return }
             await hosts.forEach { [weak self] host in
@@ -116,6 +126,7 @@ actor JobHandler {
                 }
             }
 
+            guard shouldSendJobs else { return }
             for (_, job) in await jobs {
                 guard job.sentToHost == nil, job.workflowJob.action == .queued else { continue }
                 do {
