@@ -21,6 +21,9 @@ public final class RouterServer {
         self.hostname = hostname
         jobHandler = .init(hosts: hosts, logger: logger)
 
+        Task {
+            await jobHandler.updateStatus()
+        }
     }
 
     public func run(port: Int) async throws {
