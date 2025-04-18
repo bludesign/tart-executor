@@ -6,7 +6,7 @@ final class PendingJob: Identifiable {
     var workflowJob: WorkflowJob
     let headers: [HTTPHeader: String]
     let bodyData: Data
-    var didSendToHost = false
+    var sentToHost: TartHost?
 
     init(workflowJob: WorkflowJob, headers: [HTTPHeader: String], bodyData: Data) {
         self.id = workflowJob.id

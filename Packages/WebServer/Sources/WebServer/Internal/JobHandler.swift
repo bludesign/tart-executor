@@ -12,7 +12,7 @@ actor JobHandler {
     }
 
     var pendingJobsUnsent: Int {
-        jobs.reduce(0) { $0 + ($1.value.didSendToHost ? 0 : 1) }
+        jobs.reduce(0) { $0 + ($1.value.sentToHost != nil ? 0 : 1) }
     }
 
     init(hosts: [TartHost], logger: Logger) {
@@ -29,7 +29,7 @@ actor JobHandler {
             hostRequest.setValue(value, forHTTPHeaderField: header.rawValue)
         }
         _ = try await URLSession.shared.data(for: hostRequest)
-        job.didSendToHost = true
+        job.sentToHost = host
     }
 
     func handleJob(job newJob: PendingJob) async {
@@ -53,11 +53,15 @@ actor JobHandler {
             case .queued:
                 try await handleQueuedJob(job: job)
             case .inProgress:
-                if !job.didSendToHost {
-                    job.didSendToHost = true
-                    jobs.values.first { existingJob in
-                        existingJob.id != workflowJob.id && existingJob.workflowJob.labels == workflowJob.labels && existingJob.didSendToHost
-                    }?.didSendToHost = false
+                if job.sentToHost == nil {
+                    guard let existingJob = jobs.values.first(where: { existingJob in
+                        existingJob.id != workflowJob.id && existingJob.workflowJob.labels == workflowJob.labels && existingJob.workflowJob.action == .queued && existingJob.sentToHost != nil
+                    }) else {
+                        logger.error("Error no existing job found: \(job)")
+                        return
+                    }
+                    job.sentToHost = existingJob.sentToHost
+                    existingJob.sentToHost = nil
                 }
             case .completed, .waiting, .unknown:
                 break
@@ -113,7 +117,7 @@ actor JobHandler {
             }
 
             for (_, job) in await jobs {
-                guard !job.didSendToHost && job.workflowJob.action == .queued else { continue }
+                guard job.sentToHost == nil, job.workflowJob.action == .queued else { continue }
                 do {
                     if try await handleQueuedJob(job: job) {
                         return
