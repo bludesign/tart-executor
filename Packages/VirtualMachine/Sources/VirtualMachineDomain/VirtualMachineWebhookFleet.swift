@@ -66,10 +66,10 @@ extension VirtualMachineFleetWebhook: FleetHandler {
         await jobHandler.jobStatus
     }
 
-    public func handleWorkflowJob(_ workflowJob: WorkflowJob) async {
+    public func handleWorkflowJob(_ workflowJob: WorkflowJob) async -> Bool {
         guard gitHubRunnerLabels.isSubset(of: workflowJob.labels) else {
             logger.error("Workflow job skipped because of labels. Job labels: \(workflowJob.labels) Tart labels: \(gitHubRunnerLabels)")
-            return
+            return false
         }
 
         let cpu = workflowJob.cpu ?? settings.defaultCpu
@@ -78,7 +78,7 @@ extension VirtualMachineFleetWebhook: FleetHandler {
 
         guard workflowSet.count == 1, let imageName = workflowSet.first else {
             logger.error("Workflow job skipped extra labels found: \(workflowSet)")
-            return
+            return false
         }
 
         let imageInsecure = settings.insecureDomains.contains { insecureDomain in
@@ -98,6 +98,6 @@ extension VirtualMachineFleetWebhook: FleetHandler {
             cpu: cpu,
             memory: memory
         )
-        await jobHandler.handle(pendingJob: pendingJob)
+        return await jobHandler.handle(pendingJob: pendingJob)
     }
 }

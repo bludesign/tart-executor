@@ -43,13 +43,15 @@ actor JobHandler {
         self.numberOfMachines = numberOfMachines
     }
 
-    func handle(pendingJob: PendingJob) {
+    func handle(pendingJob: PendingJob) -> Bool {
         switch pendingJob.action {
         case .routerStart:
             logger.info("Router start job added: \(pendingJob.id)")
 
             if activeJobs.count < numberOfMachines {
                 start(pendingJob: pendingJob)
+            } else {
+                return false
             }
         case .waiting:
             logger.info("Waiting job added: \(pendingJob.id)")
@@ -73,7 +75,7 @@ actor JobHandler {
             logger.info("Completed job added: \(pendingJob.id)")
             inProgressJobs.removeValue(forKey: pendingJob.id)
             guard pendingJobs[pendingJob.id] != nil else {
-                return
+                return true
             }
             pendingJobs.removeValue(forKey: pendingJob.id)
             let otherPending = pendingJobs.values.filter { existingJob in
@@ -100,6 +102,7 @@ actor JobHandler {
         case .unknown:
             logger.info("Unknown job added: \(pendingJob.id)")
         }
+        return true
     }
 
     func cancelAll() {
@@ -181,7 +184,7 @@ actor JobHandler {
 
     private func activeJobEnded() async {
         guard let routerUrl = routerUrl.flatMap({ URL(string: $0) }) else { return }
-        var request = URLRequest(url: routerUrl)
+        var request = URLRequest(url: routerUrl.appending(path: "runner"))
         request.httpMethod = "POST"
         do {
             _ = try await URLSession.shared.data(for: request)

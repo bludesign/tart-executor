@@ -26,11 +26,11 @@ public final class RouterServer {
             await jobHandler.updateStatus(shouldSendJobs: false)
         }
 
-        timer = .scheduledTimer(withTimeInterval: Constants.updateInterval, repeats: true) { [weak self] _ in
-            Task {
-                await self?.jobHandler.updateStatus(shouldSendJobs: false)
-            }
-        }
+//        timer = .scheduledTimer(withTimeInterval: Constants.updateInterval, repeats: true) { [weak self] _ in
+//            Task {
+//                await self?.jobHandler.updateStatus(shouldSendJobs: false)
+//            }
+//        }
     }
 
     public func run(port: Int) async throws {

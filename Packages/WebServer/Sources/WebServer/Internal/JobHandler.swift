@@ -2,6 +2,10 @@ import Foundation
 import LoggingDomain
 
 actor JobHandler {
+    private enum JobError: Error {
+        case errorSending
+    }
+
     private nonisolated let logger: Logger
     private let decoder = JSONDecoder()
     private var jobs = [Int: PendingJob]()
@@ -40,8 +44,12 @@ actor JobHandler {
         job.headers.forEach { header, value in
             hostRequest.setValue(value, forHTTPHeaderField: header.rawValue)
         }
-        _ = try await URLSession.shared.data(for: hostRequest)
-        job.sentToHost = host
+        let (_, response) = try await URLSession.shared.data(for: hostRequest)
+        if (response as? HTTPURLResponse)?.statusCode == 200 {
+            job.sentToHost = host
+        } else {
+            throw JobError.errorSending
+        }
     }
 
     func handleJob(job newJob: PendingJob) async {

@@ -4,7 +4,7 @@ import Foundation
 
 public protocol FleetHandler: AnyObject {
     func getJobStatus() async -> JobStatus
-    func handleWorkflowJob(_ workflowJob: WorkflowJob) async
+    func handleWorkflowJob(_ workflowJob: WorkflowJob) async -> Bool
 }
 
 public struct JobStatus {
@@ -56,7 +56,10 @@ public final class WebhookServer {
                     action: webhookResponse.action,
                     labels: webhookResponse.workflow_job.labels
                 )
-                await fleetHandler?.handleWorkflowJob(workflowJob)
+                let result = await fleetHandler?.handleWorkflowJob(workflowJob) ?? false
+                if !result {
+                    return .init(statusCode: .badGateway)
+                }
             } catch {
                 throw error
             }
@@ -74,7 +77,10 @@ public final class WebhookServer {
                     action: .routerStart,
                     labels: webhookResponse.workflow_job.labels
                 )
-                await fleetHandler?.handleWorkflowJob(workflowJob)
+                let result = await fleetHandler?.handleWorkflowJob(workflowJob) ?? false
+                if !result {
+                    return .init(statusCode: .badGateway)
+                }
             } catch {
                 throw error
             }
