@@ -89,19 +89,13 @@ actor JobHandler {
         }
         let workflowJob = job.workflowJob
 
-        do {
-            switch workflowJob.action {
-            case .queued:
-                try await handleQueuedJob(job: job)
-            case .inProgress:
-                checkJob(job: job)
-            case .completed, .waiting, .unknown, .routerStart:
-                break
-            }
-        } catch {
-            logger.error("Error handling job: \(job)")
+        switch workflowJob.action {
+        case .inProgress:
+            checkJob(job: job)
+        case .queued, .completed, .waiting, .unknown, .routerStart:
+            break
         }
-//        await updateStatus()
+        await updateStatus()
     }
 
     @discardableResult
