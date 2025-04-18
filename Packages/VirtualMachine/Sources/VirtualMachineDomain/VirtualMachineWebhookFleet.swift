@@ -59,7 +59,7 @@ public final class VirtualMachineFleetWebhook {
         Task {
             await jobHandler.set(numberOfMachines: settings.numberOfMachines)
 
-            if let localUrl = settings.routerUrl.flatMap({ URL(string: $0) }) {
+            if let localUrl = settings.localUrl.flatMap({ URL(string: $0) }) {
                 do {
                     _ = try await URLSession.shared.data(from: localUrl)
                 } catch {
