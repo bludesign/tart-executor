@@ -49,10 +49,10 @@ public final class RouterServer {
                             guard let string = String(data: data, encoding: .utf8) else {
                                 throw RouterError.wrongBody
                             }
-                            return string.appending("\ntart_executor_reachable{hostname=\"\(host.hostname)\"} true")
+                            return string.appending("\ntart_executor_reachable{hostname=\"\(host.hostname)\"} 1")
                         } catch {
                             logger.error("Error getting status for host: \(host.hostname): \(error.localizedDescription)")
-                            return "tart_executor_reachable{hostname=\"\(host.hostname)\"} false"
+                            return "tart_executor_reachable{hostname=\"\(host.hostname)\"} 0"
                         }
                     }
                 }
@@ -77,7 +77,7 @@ public final class RouterServer {
                 return results
             }
             let status = strings.joined(separator: "\n")
-            return .init(statusCode: .ok, body: Data(status.utf8))
+            return .init(statusCode: .ok, headers: [.init(rawValue: "Content-Type"): "text/plain; version=0.0.4"], body: Data(status.utf8))
         }
 
         await server.appendRoute("POST /runner") { [weak self] _ in
