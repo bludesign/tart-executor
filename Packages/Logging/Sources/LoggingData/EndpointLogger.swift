@@ -41,7 +41,7 @@ private extension EndpointLogger {
         let subsystem: String
         let level: String
         let message: String
-        let hostname: String
+        let host: String
         let service: String
         let timestamp: String
     }
@@ -52,7 +52,7 @@ private extension EndpointLogger {
                 subsystem: subsystem,
                 level: level,
                 message: message,
-                hostname: hostname,
+                host: hostname,
                 service: service,
                 timestamp: ISO8601DateFormatter().string(from: Date())
             )
