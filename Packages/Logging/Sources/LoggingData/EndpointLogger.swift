@@ -8,6 +8,7 @@ public final class EndpointLogger: LoggingDomain.Logger {
     private let endpointUrl: URL
     private let session: URLSession
     private let jsonEncoder: JSONEncoder
+    private let dateFormatter = DateFormatter()
 
     public init(subsystem: String, hostname: String, service: String, endpoint: String) throws {
         guard let url = URL(string: endpoint) else {
@@ -23,6 +24,10 @@ public final class EndpointLogger: LoggingDomain.Logger {
         configuration.timeoutIntervalForRequest = 5.0
         configuration.timeoutIntervalForResource = 10.0
         self.session = URLSession(configuration: configuration)
+    
+        dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
+        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+        dateFormatter.timeZone = TimeZone(secondsFromGMT: 0)
 
         self.jsonEncoder = JSONEncoder()
     }
@@ -48,17 +53,18 @@ private extension EndpointLogger {
     }
 
     func sendLog(level: String, message: String, parameters: [String: String]?) {
-        Task {
-            let logEntry = LogEntry(
-                subsystem: subsystem,
-                level: level,
-                message: message,
-                host: hostname,
-                service: service,
-                timestamp: ISO8601DateFormatter().string(from: Date()),
-                parameters: parameters
-            )
+        let date = Date()
+        let logEntry = LogEntry(
+            subsystem: subsystem,
+            level: level,
+            message: message,
+            host: hostname,
+            service: service,
+            timestamp: dateFormatter.string(from: date),
+            parameters: parameters
+        )
 
+        Task {
             guard let jsonData = try? jsonEncoder.encode(logEntry) else {
                 return
             }

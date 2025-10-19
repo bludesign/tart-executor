@@ -45,11 +45,11 @@ actor ExecutorJobHandler {
         switch pendingJob.action {
         case .routerStart:
             logger.info("Router start job added", parameters: [
-                "jobId": "\(pendingJob.id)",
-                "workflowJobId": "\(pendingJob.workflowJob.id)",
-                "willStart": "\(activeJobs.count < numberOfMachines)",
-                "activeJobs": "\(activeJobs.count)",
-                "maxMachines": "\(numberOfMachines)"
+                LogParameterKey.jobId: "\(pendingJob.id)",
+                LogParameterKey.workflowJobId: "\(pendingJob.workflowJob.id)",
+                LogParameterKey.willStart: "\(activeJobs.count < numberOfMachines)",
+                LogParameterKey.activeJobs: "\(activeJobs.count)",
+                LogParameterKey.maxMachines: "\(numberOfMachines)"
             ])
 
             if activeJobs.count < numberOfMachines {
@@ -59,13 +59,13 @@ actor ExecutorJobHandler {
             }
         case .waiting:
             logger.info("Waiting job added", parameters: [
-                "jobId": "\(pendingJob.id)",
-                "workflowJobId": "\(pendingJob.workflowJob.id)"
+                LogParameterKey.jobId: "\(pendingJob.id)",
+                LogParameterKey.workflowJobId: "\(pendingJob.workflowJob.id)"
             ])
         case .queued:
             logger.info("Pending job added", parameters: [
-                "jobId": "\(pendingJob.id)",
-                "workflowJobId": "\(pendingJob.workflowJob.id)"
+                LogParameterKey.jobId: "\(pendingJob.id)",
+                LogParameterKey.workflowJobId: "\(pendingJob.workflowJob.id)"
             ])
             pendingJobs[pendingJob.id] = pendingJob
 
@@ -74,8 +74,8 @@ actor ExecutorJobHandler {
             }
         case .inProgress:
             logger.info("In progress job added", parameters: [
-                "jobId": "\(pendingJob.id)",
-                "workflowJobId": "\(pendingJob.workflowJob.id)"
+                LogParameterKey.jobId: "\(pendingJob.id)",
+                LogParameterKey.workflowJobId: "\(pendingJob.workflowJob.id)"
             ])
             let oldJob = pendingJobs.removeValue(forKey: pendingJob.id)
             if let oldJob, !oldJob.didStart {
@@ -86,8 +86,8 @@ actor ExecutorJobHandler {
             inProgressJobs[pendingJob.id] = pendingJob
         case .completed:
             logger.info("Completed job added", parameters: [
-                "jobId": "\(pendingJob.id)",
-                "workflowJobId": "\(pendingJob.workflowJob.id)"
+                LogParameterKey.jobId: "\(pendingJob.id)",
+                LogParameterKey.workflowJobId: "\(pendingJob.workflowJob.id)"
             ])
             inProgressJobs.removeValue(forKey: pendingJob.id)
             guard pendingJobs[pendingJob.id] != nil else {
@@ -112,8 +112,8 @@ actor ExecutorJobHandler {
             }
         case .unknown:
             logger.info("Unknown job added", parameters: [
-                "jobId": "\(pendingJob.id)",
-                "workflowJobId": "\(pendingJob.workflowJob.id)"
+                LogParameterKey.jobId: "\(pendingJob.id)",
+                LogParameterKey.workflowJobId: "\(pendingJob.workflowJob.id)"
             ])
         }
         return true
@@ -135,8 +135,8 @@ actor ExecutorJobHandler {
             activeJob.task.cancel()
         }
         logger.info("Cancelled jobs with labels", parameters: [
-            "cancelledCount": "\(cancalledJobs)",
-            "labels": labels.joined(separator: ",")
+            LogParameterKey.cancelledCount: "\(cancalledJobs)",
+            LogParameterKey.labels: labels.joined(separator: ",")
         ])
     }
 }
@@ -144,9 +144,9 @@ actor ExecutorJobHandler {
 private extension ExecutorJobHandler {
     func start(pendingJob: ExecutorPendingJob) {
         logger.info("Starting job", parameters: [
-            "jobId": "\(pendingJob.id)",
-            "workflowJobId": "\(pendingJob.workflowJob.id)",
-            "imageName": pendingJob.imageName
+            LogParameterKey.jobId: "\(pendingJob.id)",
+            LogParameterKey.workflowJobId: "\(pendingJob.workflowJob.id)",
+            LogParameterKey.imageName: pendingJob.imageName
         ])
         pendingJob.didStart = true
         let runnerLabels = pendingJob.workflowJob.labels.joined(separator: ",")
@@ -154,10 +154,10 @@ private extension ExecutorJobHandler {
         let task = Task { [weak self, logger, virtualMachineProvider] in
             do {
                 logger.info("Creating virtual machine", parameters: [
-                    "imageName": pendingJob.imageName,
-                    "jobId": "\(pendingJob.id)",
-                    "workflowJobId": "\(pendingJob.workflowJob.id)",
-                    "uuid": uuid.uuidString
+                    LogParameterKey.imageName: pendingJob.imageName,
+                    LogParameterKey.jobId: "\(pendingJob.id)",
+                    LogParameterKey.workflowJobId: "\(pendingJob.workflowJob.id)",
+                    LogParameterKey.uuid: uuid.uuidString
                 ])
                 let virtualMachine = try await virtualMachineProvider.createVirtualMachine(
                     imageName: pendingJob.imageName,
@@ -172,20 +172,20 @@ private extension ExecutorJobHandler {
                     do {
                         try await virtualMachine.delete()
                         logger.info("Did delete virtual machine", parameters: [
-                            "vmName": virtualMachine.name,
-                            "jobId": "\(pendingJob.id)",
-                            "workflowJobId": "\(pendingJob.workflowJob.id)",
-                            "uuid": uuid.uuidString,
-                            "runError": runError?.localizedDescription ?? "none"
+                            LogParameterKey.vmName: virtualMachine.name,
+                            LogParameterKey.jobId: "\(pendingJob.id)",
+                            LogParameterKey.workflowJobId: "\(pendingJob.workflowJob.id)",
+                            LogParameterKey.uuid: uuid.uuidString,
+                            LogParameterKey.runError: runError?.localizedDescription ?? "none"
                         ])
                     } catch {
                         logger.info("Could not delete virtual machine", parameters: [
-                            "vmName": virtualMachine.name,
-                            "jobId": "\(pendingJob.id)",
-                            "workflowJobId": "\(pendingJob.workflowJob.id)",
-                            "uuid": uuid.uuidString,
-                            "deleteError": error.localizedDescription,
-                            "runError": runError?.localizedDescription ?? "none"
+                            LogParameterKey.vmName: virtualMachine.name,
+                            LogParameterKey.jobId: "\(pendingJob.id)",
+                            LogParameterKey.workflowJobId: "\(pendingJob.workflowJob.id)",
+                            LogParameterKey.uuid: uuid.uuidString,
+                            LogParameterKey.deleteError: error.localizedDescription,
+                            LogParameterKey.runError: runError?.localizedDescription ?? "none"
                         ])
                         throw error
                     }
@@ -193,27 +193,27 @@ private extension ExecutorJobHandler {
 
                 try await withTaskCancellationHandler {
                     logger.info("Start virtual machine", parameters: [
-                        "vmName": virtualMachine.name,
-                        "jobId": "\(pendingJob.id)",
-                        "workflowJobId": "\(pendingJob.workflowJob.id)",
-                        "uuid": uuid.uuidString
+                        LogParameterKey.vmName: virtualMachine.name,
+                        LogParameterKey.jobId: "\(pendingJob.id)",
+                        LogParameterKey.workflowJobId: "\(pendingJob.workflowJob.id)",
+                        LogParameterKey.uuid: uuid.uuidString
                     ])
                     do {
                         try await virtualMachine.start(netBridgedAdapter: pendingJob.netBridgedAdapter, isHeadless: pendingJob.isHeadless)
                         logger.info("Did stop virtual machine", parameters: [
-                            "vmName": virtualMachine.name,
-                            "jobId": "\(pendingJob.id)",
-                            "workflowJobId": "\(pendingJob.workflowJob.id)",
-                            "uuid": uuid.uuidString
+                            LogParameterKey.vmName: virtualMachine.name,
+                            LogParameterKey.jobId: "\(pendingJob.id)",
+                            LogParameterKey.workflowJobId: "\(pendingJob.workflowJob.id)",
+                            LogParameterKey.uuid: uuid.uuidString
                         ])
                         try await delete()
                     } catch {
                         logger.error("Virtual machine stopped with error", parameters: [
-                            "vmName": virtualMachine.name,
-                            "jobId": "\(pendingJob.id)",
-                            "workflowJobId": "\(pendingJob.workflowJob.id)",
-                            "uuid": uuid.uuidString,
-                            "error": error.localizedDescription
+                            LogParameterKey.vmName: virtualMachine.name,
+                            LogParameterKey.jobId: "\(pendingJob.id)",
+                            LogParameterKey.workflowJobId: "\(pendingJob.workflowJob.id)",
+                            LogParameterKey.uuid: uuid.uuidString,
+                            LogParameterKey.error: error.localizedDescription
                         ])
                         try await delete(error: error)
                         throw error
@@ -221,20 +221,20 @@ private extension ExecutorJobHandler {
                 } onCancel: {
                     Task.detached(priority: .high) {
                         logger.info("Cancel virtual machine", parameters: [
-                            "vmName": virtualMachine.name,
-                            "jobId": "\(pendingJob.id)",
-                            "workflowJobId": "\(pendingJob.workflowJob.id)",
-                            "uuid": uuid.uuidString
+                            LogParameterKey.vmName: virtualMachine.name,
+                            LogParameterKey.jobId: "\(pendingJob.id)",
+                            LogParameterKey.workflowJobId: "\(pendingJob.workflowJob.id)",
+                            LogParameterKey.uuid: uuid.uuidString
                         ])
                         do {
                             try await virtualMachine.delete()
                         } catch {
                             logger.info("Could not delete virtual machine", parameters: [
-                                "vmName": virtualMachine.name,
-                                "jobId": "\(pendingJob.id)",
-                                "workflowJobId": "\(pendingJob.workflowJob.id)",
-                                "uuid": uuid.uuidString,
-                                "error": error.localizedDescription
+                                LogParameterKey.vmName: virtualMachine.name,
+                                LogParameterKey.jobId: "\(pendingJob.id)",
+                                LogParameterKey.workflowJobId: "\(pendingJob.workflowJob.id)",
+                                LogParameterKey.uuid: uuid.uuidString,
+                                LogParameterKey.error: error.localizedDescription
                             ])
                             throw error
                         }
@@ -245,10 +245,10 @@ private extension ExecutorJobHandler {
                 await self?.remove(uuid: uuid)
             } catch {
                 logger.error("Job execution failed", parameters: [
-                    "jobId": "\(pendingJob.id)",
-                    "workflowJobId": "\(pendingJob.workflowJob.id)",
-                    "uuid": uuid.uuidString,
-                    "error": error.localizedDescription
+                    LogParameterKey.jobId: "\(pendingJob.id)",
+                    LogParameterKey.workflowJobId: "\(pendingJob.workflowJob.id)",
+                    LogParameterKey.uuid: uuid.uuidString,
+                    LogParameterKey.error: error.localizedDescription
                 ])
                 await self?.remove(uuid: uuid)
             }
@@ -276,8 +276,8 @@ private extension ExecutorJobHandler {
             _ = try await URLSession.shared.data(for: request)
         } catch {
             logger.error("Error calling router", parameters: [
-                "routerUrl": routerUrl.absoluteString,
-                "error": error.localizedDescription
+                LogParameterKey.routerUrl: routerUrl.absoluteString,
+                LogParameterKey.error: error.localizedDescription
             ])
         }
     }
