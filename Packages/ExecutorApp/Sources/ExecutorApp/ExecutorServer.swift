@@ -24,6 +24,7 @@ public protocol ExecutorServerSettings {
     var hostname: String { get }
     var cpuLimit: Int { get }
     var totalMemory: Int { get }
+    var loggingEndpoint: String? { get }
 }
 
 final class ExecutorServer {

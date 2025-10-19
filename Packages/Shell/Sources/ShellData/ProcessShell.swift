@@ -24,10 +24,17 @@ public struct ProcessShell: Shell {
             // See https://github.com/swiftlang/swift/issues/57827
             try pipe.fileHandleForReading.close()
             process.waitUntilExit()
+            let result = String(data: data, encoding: .utf8) ?? ""
             guard process.terminationStatus == 0 else {
-                throw ProcessShellError.unexpectedTerminationStatus(process.terminationStatus)
+                throw ProcessShellError.unexpectedTerminationStatus(
+                    process.terminationStatus,
+                    executablePath: executablePath,
+                    arguments: arguments,
+                    environment: environment,
+                    result: result
+                )
             }
-            return String(data: data, encoding: .utf8) ?? ""
+            return result
         } onCancel: {
             if sendableProcess.process.isRunning {
                 sendableProcess.process.terminate()

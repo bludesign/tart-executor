@@ -30,20 +30,20 @@ public final class ExecutorComposer {
         )
 
         let sshClient = VirtualMachineSSHClient(
-            logger: Self.logger(subsystem: "VirtualMachineSSHClient"),
+            logger: Self.logger(environment, subsystem: "VirtualMachineSSHClient"),
             client: CitadelSSHClient(
-                logger: Self.logger(subsystem: "CitadelSSHClient")
+                logger: Self.logger(environment, subsystem: "CitadelSSHClient")
             ),
             ipAddressReader: RetryingVirtualMachineIPAddressReader(),
             credentialsStore: environment,
             connectionHandler: CompositeVirtualMachineSSHConnectionHandler([
                 PostBootScriptSSHConnectionHandler(),
                 GitHubActionsRunnerSSHConnectionHandler(
-                    logger: Self.logger(subsystem: "GitHubActionsRunnerSSHConnectionHandler"),
+                    logger: Self.logger(environment, subsystem: "GitHubActionsRunnerSSHConnectionHandler"),
                     client: NetworkingGitHubClient(
                         credentialsStore: environment,
                         networkingService: URLSessionNetworkingService(
-                            logger: Self.logger(subsystem: "URLSessionNetworkingService")
+                            logger: Self.logger(environment, subsystem: "URLSessionNetworkingService")
                         )
                     ),
                     credentialsStore: environment,
@@ -53,9 +53,9 @@ public final class ExecutorComposer {
         )
 
         executorServer = ExecutorServer(
-            logger: Self.logger(subsystem: "ExecutorServer"),
+            logger: Self.logger(environment, subsystem: "ExecutorServer"),
             virtualMachineProvider: TartVirtualMachineProvider(
-                logger: Self.logger(subsystem: "TartVirtualMachineProvider"),
+                logger: Self.logger(environment, subsystem: "TartVirtualMachineProvider"),
                 tart: tart,
                 sshClient: sshClient
             ),
@@ -72,7 +72,25 @@ public final class ExecutorComposer {
         try await executorServer.start()
     }
 
-    private static func logger(subsystem: String) -> Logger {
-        ConsoleLogger(subsystem: subsystem)
+    private static func logger(_ environment: ExecutorEnvironment, subsystem: String) -> Logger {
+        let consoleLogger = ConsoleLogger(subsystem: subsystem)
+
+        guard let loggingEndpoint = environment.loggingEndpoint else {
+            return consoleLogger
+        }
+
+        do {
+            let endpointLogger = try EndpointLogger(
+                subsystem: subsystem,
+                hostname: environment.hostname,
+                service: "tart-executor",
+                endpoint: loggingEndpoint
+            )
+
+            return MultiplexLogger(loggers: [consoleLogger, endpointLogger])
+        } catch {
+            print("Failed to create EndpointLogger: \(error.localizedDescription)")
+            return consoleLogger
+        }
     }
 }

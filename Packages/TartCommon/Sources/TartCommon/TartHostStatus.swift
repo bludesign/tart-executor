@@ -4,7 +4,7 @@ public struct TartHostStatus: Codable {
     public let inProgressJobs: Int
     public let pendingJobs: Int
     public let startedPendingJobs: Int
-    public let activeVirtualMachines: Int
+    public var activeVirtualMachines: Int
     public let virtualMachineLimit: Int
     public let cpuLimit: Int
     public let cpuUsed: Int
