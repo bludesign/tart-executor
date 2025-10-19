@@ -27,12 +27,12 @@ public final class EndpointLogger: LoggingDomain.Logger {
         self.jsonEncoder = JSONEncoder()
     }
 
-    public func info(_ message: String) {
-        sendLog(level: "info", message: message)
+    public func info(_ message: String, parameters: [String: String]?) {
+        sendLog(level: "info", message: message, parameters: parameters)
     }
 
-    public func error(_ message: String) {
-        sendLog(level: "error", message: message)
+    public func error(_ message: String, parameters: [String: String]?) {
+        sendLog(level: "error", message: message, parameters: parameters)
     }
 }
 
@@ -44,9 +44,10 @@ private extension EndpointLogger {
         let host: String
         let service: String
         let timestamp: String
+        let parameters: [String: String]?
     }
 
-    func sendLog(level: String, message: String) {
+    func sendLog(level: String, message: String, parameters: [String: String]?) {
         Task {
             let logEntry = LogEntry(
                 subsystem: subsystem,
@@ -54,7 +55,8 @@ private extension EndpointLogger {
                 message: message,
                 host: hostname,
                 service: service,
-                timestamp: ISO8601DateFormatter().string(from: Date())
+                timestamp: ISO8601DateFormatter().string(from: Date()),
+                parameters: parameters
             )
 
             guard let jsonData = try? jsonEncoder.encode(logEntry) else {

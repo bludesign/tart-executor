@@ -8,11 +8,11 @@ public final class MultiplexLogger: LoggingDomain.Logger {
         self.loggers = loggers
     }
 
-    public func info(_ message: String) {
-        loggers.forEach { $0.info(message) }
+    public func info(_ message: String, parameters: [String: String]?) {
+        loggers.forEach { $0.info(message, parameters: parameters) }
     }
 
-    public func error(_ message: String) {
-        loggers.forEach { $0.error(message) }
+    public func error(_ message: String, parameters: [String: String]?) {
+        loggers.forEach { $0.error(message, parameters: parameters) }
     }
 }
