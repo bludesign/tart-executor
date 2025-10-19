@@ -5,6 +5,7 @@ excluded:
   - Packages/Settings/Sources/SettingsUI/Internal/L10n.swift
   - "**/.build"
   - "**/.index-build"
+  - DerivedData
 disabled_rules:
   - line_length
   - function_parameter_count

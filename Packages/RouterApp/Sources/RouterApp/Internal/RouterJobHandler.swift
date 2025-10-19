@@ -139,7 +139,7 @@ actor RouterJobHandler {
                 do {
                     _ = try await handleQueuedJob(job: job)
                 } catch {
-                    logger.error("Error handling pending job: \(job)")
+                    logger.error("Error handling pending job: \(job.id)")
                 }
             }
         }
@@ -158,6 +158,7 @@ private extension RouterJobHandler {
         let (_, response) = try await URLSession.shared.data(for: hostRequest)
         if (response as? HTTPURLResponse)?.statusCode == 200 {
             job.sentToHost = host
+            host.lastStatus?.activeVirtualMachines += 1
         } else {
             throw JobError.errorSending
         }
@@ -194,8 +195,12 @@ private extension RouterJobHandler {
                 lowestCapacityHost = (capacity, host)
             }
             if hasCapacity {
-                try await Self.sendJob(host: host, job: job, logger: logger)
-                return true
+                do {
+                    try await Self.sendJob(host: host, job: job, logger: logger)
+                    return true
+                } catch {
+                    logger.error("Failed to send job: \(job.id) to host: \(host.hostname)")
+                }
             }
         }
         if lowestCapacityHost != nil {

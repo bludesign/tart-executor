@@ -33,6 +33,8 @@ hostname: server
 cpuLimit: 10
 # Total memory in MB binary used only for metrics endpoint (requried)
 totalMemory: 16384
+# Optional logging endpoint URL to send NDJSON via HTTP POST (optional)
+loggingEndpoint: http://10.0.1.50:8080/logs
 tart:
   # Custom home folder to use for Tart if you use an external drive you will need to allow access when the dialog shows up (optional)
   homeFolder: /Volumes/Files/tart
@@ -94,6 +96,8 @@ hostname: macbook-router
 label: tartelet
 # Port to listen on for Github webhook calls (required)
 port: 3251
+# Optional logging endpoint URL to send NDJSON via HTTP POST (optional)
+loggingEndpoint: http://10.0.1.50:8080/logs
 # Array of tart-executor hosts to forward Github action jobs to (required)
 hosts:
     # Hostname set in config for tart-executor (required)
