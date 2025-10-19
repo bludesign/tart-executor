@@ -8,6 +8,7 @@ public struct RouterEnvironment: Decodable {
     public let labels: String
     public let port: Int
     public let hosts: [TartHost]
+    public let loggingEndpoint: String?
 
     public init() throws {
         let configUrl = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("tart-router.yaml")

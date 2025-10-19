@@ -4,7 +4,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "Tart",
+    name: "tart",
     platforms: [
         .macOS(.v14)
     ],
@@ -28,7 +28,7 @@ let package = Package(
             path: "tart-router",
             plugins: [.plugin(name: "SwiftLintBuildToolPlugin", package: "SwiftLintPlugins")]
         ),
-        
+
         .executableTarget(
             name: "TartExecutor",
             dependencies: [

@@ -33,6 +33,7 @@ public final class Environment: TartHomeProvider,
     public let localUrl: String?
     public let defaultCpu: Int?
     public let defaultMemory: Int?
+    public let loggingEndpoint: String?
 
     public init() throws {
         let configUrl = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("tart-executor.yaml")
@@ -64,5 +65,6 @@ public final class Environment: TartHomeProvider,
         localUrl = environmentYaml.webhook.localUrl
         defaultCpu = environmentYaml.tart.defaultCpu
         defaultMemory = environmentYaml.tart.defaultMemory
+        loggingEndpoint = environmentYaml.loggingEndpoint
     }
 }

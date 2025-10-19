@@ -11,6 +11,7 @@ struct EnvironmentYaml: Decodable {
     let hostname: String
     let cpuLimit: Int
     let totalMemory: Int
+    let loggingEndpoint: String?
 }
 
 // MARK: - Tark
