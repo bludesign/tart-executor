@@ -52,7 +52,11 @@ public final class RouterServer {
                             }
                             return string.appending("\ntart_executor_reachable{hostname=\"\(host.hostname)\"} 1")
                         } catch {
-                            logger.error("Error getting status for host: \(host.hostname): \(error.localizedDescription)")
+                            logger.error("Error getting status for host", parameters: [
+                                "hostname": host.hostname,
+                                "url": host.url.absoluteString,
+                                "error": error.localizedDescription
+                            ])
                             return "tart_executor_reachable{hostname=\"\(host.hostname)\"} 0"
                         }
                     }
@@ -102,7 +106,11 @@ public final class RouterServer {
                     labels: webhookResponse.workflow_job.labels
                 )
                 guard labels.isSubset(of: workflowJob.labels) else {
-                    logger.error("Workflow job skipped because of labels. Job labels: \(workflowJob.labels) Tart labels: \(labels)")
+                    logger.error("Workflow job skipped because of labels", parameters: [
+                        "workflowJobId": "\(workflowJob.id)",
+                        "jobLabels": workflowJob.labels.joined(separator: ","),
+                        "tartLabels": labels.joined(separator: ",")
+                    ])
                     return .init(statusCode: .ok)
                 }
                 await jobHandler.handleJob(job: .init(workflowJob: workflowJob, headers: request.headers, bodyData: bodyData))
