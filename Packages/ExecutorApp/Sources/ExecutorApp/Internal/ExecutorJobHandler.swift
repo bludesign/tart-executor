@@ -128,19 +128,19 @@ private extension ExecutorJobHandler {
                 logger.info("Creating virtual with image \(pendingJob.imageName)")
                 let virtualMachine = try await virtualMachineProvider.createVirtualMachine(
                     imageName: pendingJob.imageName,
-                    name: "tartelet-temp-\(uuid.uuidString)",
+                    name: "tart-executor-\(pendingJob.workflowJob.id)-\(uuid.uuidString)",
                     runnerLabels: runnerLabels,
                     isInsecure: pendingJob.isInsecure,
                     cpu: pendingJob.cpu,
                     memory: pendingJob.memory
                 )
 
-                func delete() async throws {
+                func delete(error runError: Error? = nil) async throws {
                     do {
                         try await virtualMachine.delete()
-                        logger.info("Did delete virtual machine named \(virtualMachine.name)")
+                        logger.info("Did delete virtual machine named \(virtualMachine.name) \(runError?.localizedDescription ?? "without run error")")
                     } catch {
-                        logger.info("Could not delete virtual machine named \(virtualMachine.name)")
+                        logger.info("Could not delete virtual machine named \(virtualMachine.name) \(error.localizedDescription) \(runError?.localizedDescription ?? "without run error")")
                         throw error
                     }
                 }
@@ -152,8 +152,8 @@ private extension ExecutorJobHandler {
                         logger.info("Did stop virtual machine named \(virtualMachine.name)")
                         try await delete()
                     } catch {
-                        logger.info("Virtual machine named \(virtualMachine.name) stopped with message: " + error.localizedDescription)
-                        try await delete()
+                        logger.error("Virtual machine named \(virtualMachine.name) stopped with error: " + error.localizedDescription)
+                        try await delete(error: error)
                         throw error
                     }
                 } onCancel: {
