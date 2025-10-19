@@ -51,7 +51,11 @@ actor RouterJobHandler {
                     existingJob.workflowJob.action == .queued &&
                     existingJob.sentToHost != nil
                 }) else {
-                    logger.error("Error no existing job found: \(job.id)")
+                    logger.error("Error no existing job found", parameters: [
+                        "jobId": "\(job.id)",
+                        "workflowJobId": "\(job.workflowJob.id)",
+                        "labels": job.workflowJob.labels.joined(separator: ",")
+                    ])
                     return
                 }
                 job.sentToHost = existingJob.sentToHost
@@ -106,7 +110,11 @@ actor RouterJobHandler {
                     do {
                         try await Self.cancelJobsByLabels(host: host, labels: labels, logger: logger)
                     } catch {
-                        logger.error("Error sending cancel request to host: \(host.hostname): \(error.localizedDescription)")
+                        logger.error("Error sending cancel request to host", parameters: [
+                            "hostname": host.hostname,
+                            "labels": labels.joined(separator: ","),
+                            "error": error.localizedDescription
+                        ])
                     }
                 }
             }
@@ -126,7 +134,11 @@ actor RouterJobHandler {
                         host.lastStatus = status
                     } catch {
                         host.lastStatus = nil
-                        logger.error("Error getting status for host: \(host.hostname): \(error.localizedDescription)")
+                        logger.error("Error getting status for host", parameters: [
+                            "hostname": host.hostname,
+                            "url": host.url.absoluteString,
+                            "error": error.localizedDescription
+                        ])
                     }
                 }
             }
@@ -139,7 +151,11 @@ actor RouterJobHandler {
                 do {
                     _ = try await handleQueuedJob(job: job)
                 } catch {
-                    logger.error("Error handling pending job: \(job.id)")
+                    logger.error("Error handling pending job", parameters: [
+                        "jobId": "\(job.id)",
+                        "workflowJobId": "\(job.workflowJob.id)",
+                        "error": error.localizedDescription
+                    ])
                 }
             }
         }
@@ -148,7 +164,12 @@ actor RouterJobHandler {
 
 private extension RouterJobHandler {
     static func sendJob(host: TartHost, job: RouterPendingJob, logger: Logger) async throws {
-        logger.info("Sending job: \(job.workflowJob.id) to host: \(host.hostname)")
+        logger.info("Sending job to host", parameters: [
+            "jobId": "\(job.id)",
+            "workflowJobId": "\(job.workflowJob.id)",
+            "hostname": host.hostname,
+            "labels": job.workflowJob.labels.joined(separator: ",")
+        ])
         var hostRequest = URLRequest(url: host.url.appending(path: "/router"))
         hostRequest.httpMethod = "POST"
         hostRequest.httpBody = job.bodyData
@@ -165,7 +186,10 @@ private extension RouterJobHandler {
     }
 
     static func cancelJobsByLabels(host: TartHost, labels: Set<String>, logger: Logger) async throws {
-        logger.info("Sending cancel request for labels: \(labels) to host: \(host.hostname)")
+        logger.info("Sending cancel request to host", parameters: [
+            "hostname": host.hostname,
+            "labels": labels.joined(separator: ",")
+        ])
         var hostRequest = URLRequest(url: host.url.appending(path: "/cancel"))
         hostRequest.httpMethod = "POST"
         hostRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -199,14 +223,23 @@ private extension RouterJobHandler {
                     try await Self.sendJob(host: host, job: job, logger: logger)
                     return true
                 } catch {
-                    logger.error("Failed to send job: \(job.id) to host: \(host.hostname)")
+                    logger.error("Failed to send job to host", parameters: [
+                        "jobId": "\(job.id)",
+                        "workflowJobId": "\(job.workflowJob.id)",
+                        "hostname": host.hostname,
+                        "error": error.localizedDescription
+                    ])
                 }
             }
         }
         if lowestCapacityHost != nil {
             return false
         } else {
-            logger.error("No host found to take job: \(job.id)")
+            logger.error("No host found to take job", parameters: [
+                "jobId": "\(job.id)",
+                "workflowJobId": "\(job.workflowJob.id)",
+                "labels": job.workflowJob.labels.joined(separator: ",")
+            ])
             return false
         }
     }
