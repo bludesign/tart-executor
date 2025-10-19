@@ -61,8 +61,8 @@ final class ExecutorServer {
                     _ = try await URLSession.shared.data(from: localUrl)
                 } catch {
                     logger.error("Error calling local url", parameters: [
-                        "url": localUrl.absoluteString,
-                        "error": error.localizedDescription
+                        LogParameterKey.url: localUrl.absoluteString,
+                        LogParameterKey.error: error.localizedDescription
                     ])
                 }
             }
@@ -71,9 +71,9 @@ final class ExecutorServer {
 
     func start() async throws {
         logger.info("Starting web server", parameters: [
-            "port": "\(settings.webhookPort)",
-            "numberOfMachines": "\(settings.numberOfMachines)",
-            "hostname": settings.hostname
+            LogParameterKey.port: "\(settings.webhookPort)",
+            LogParameterKey.numberOfMachines: "\(settings.numberOfMachines)",
+            LogParameterKey.hostname: settings.hostname
         ])
         let server = HTTPServer(port: UInt16(settings.webhookPort))
         self.server = server
@@ -176,7 +176,7 @@ tart_executor_memory_used\(labels) \(jobStatus.memoryUsed)
                 return .init(statusCode: .ok)
             } catch {
                 logger.error("Error processing cancel request", parameters: [
-                    "error": error.localizedDescription
+                    LogParameterKey.error: error.localizedDescription
                 ])
                 return .init(statusCode: .badRequest)
             }
@@ -194,9 +194,9 @@ private extension ExecutorServer {
     func handleWorkflowJob(_ workflowJob: WorkflowJob) async -> Bool {
         guard gitHubRunnerLabels.isSubset(of: workflowJob.labels) else {
             logger.error("Workflow job skipped because of labels", parameters: [
-                "workflowJobId": "\(workflowJob.id)",
-                "jobLabels": workflowJob.labels.joined(separator: ","),
-                "tartLabels": gitHubRunnerLabels.joined(separator: ",")
+                LogParameterKey.workflowJobId: "\(workflowJob.id)",
+                LogParameterKey.jobLabels: workflowJob.labels.joined(separator: ","),
+                LogParameterKey.tartLabels: gitHubRunnerLabels.joined(separator: ",")
             ])
             return false
         }
@@ -207,10 +207,10 @@ private extension ExecutorServer {
 
         guard workflowSet.count == 1, let imageName = workflowSet.first else {
             logger.error("Workflow job skipped extra labels found", parameters: [
-                "workflowJobId": "\(workflowJob.id)",
-                "extraLabels": workflowSet.joined(separator: ","),
-                "expectedCount": "1",
-                "actualCount": "\(workflowSet.count)"
+                LogParameterKey.workflowJobId: "\(workflowJob.id)",
+                LogParameterKey.extraLabels: workflowSet.joined(separator: ","),
+                LogParameterKey.expectedCount: "1",
+                LogParameterKey.actualCount: "\(workflowSet.count)"
             ])
             return false
         }
@@ -222,12 +222,12 @@ private extension ExecutorServer {
         let isJobInsecure = settings.isInsecure || imageInsecure
 
         logger.info("Workflow job received", parameters: [
-            "workflowJobId": "\(workflowJob.id)",
-            "action": workflowJob.action.rawValue,
-            "imageName": imageName,
-            "isInsecure": "\(isJobInsecure)",
-            "cpu": cpu.map { "\($0)" } ?? "default",
-            "memory": memory.map { "\($0)" } ?? "default"
+            LogParameterKey.workflowJobId: "\(workflowJob.id)",
+            LogParameterKey.action: workflowJob.action.rawValue,
+            LogParameterKey.imageName: imageName,
+            LogParameterKey.isInsecure: "\(isJobInsecure)",
+            LogParameterKey.cpu: cpu.map { "\($0)" } ?? "default",
+            LogParameterKey.memory: memory.map { "\($0)" } ?? "default"
         ])
 
         let pendingJob = ExecutorPendingJob(
