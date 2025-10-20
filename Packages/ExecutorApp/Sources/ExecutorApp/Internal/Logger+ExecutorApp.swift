@@ -61,6 +61,7 @@ extension Logger {
             params[LogParameterKey.jobId] = "\(pendingJob.id)"
             params[LogParameterKey.workflowJobId] = "\(pendingJob.workflowJob.id)"
             params[LogParameterKey.imageName] = pendingJob.imageName
+            params[LogParameterKey.jobAction] = pendingJob.workflowJob.action.rawValue
         }
 
         if let virtualMachine {
