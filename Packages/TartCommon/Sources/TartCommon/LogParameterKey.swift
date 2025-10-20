@@ -3,6 +3,7 @@ public enum LogParameterKey {
     public static let jobId = "jobId"
     public static let workflowJobId = "workflowJobId"
     public static let uuid = "uuid"
+    public static let jobAction = "jobAction"
 
     // Virtual Machine
     public static let vmName = "vmName"
