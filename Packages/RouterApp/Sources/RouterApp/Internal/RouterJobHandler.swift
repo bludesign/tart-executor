@@ -42,7 +42,7 @@ actor RouterJobHandler {
     }
 
     func handleJob(job newJob: RouterPendingJob) async {
-        logger.info("Job Handle", job: job)
+        logger.info("Job Router Handle", job: newJob)
         func checkJob(job: RouterPendingJob) {
             if job.sentToHost == nil {
                 let workflowJob = job.workflowJob
@@ -52,7 +52,7 @@ actor RouterJobHandler {
                     existingJob.workflowJob.action == .queued &&
                     existingJob.sentToHost != nil
                 }) else {
-                    logger.error("Error no existing job found", job: job)
+                    logger.error("Job Router No Existing Job Found", job: job)
                     return
                 }
                 job.sentToHost = existingJob.sentToHost
@@ -107,7 +107,7 @@ actor RouterJobHandler {
                     do {
                         try await Self.cancelJobsByLabels(host: host, labels: labels, logger: logger)
                     } catch {
-                        logger.error("Error sending cancel request to host", host: host, labels: labels, error: error)
+                        logger.error("Executor API Job Cancel With Labels Error", host: host, labels: labels, error: error)
                     }
                 }
             }
@@ -127,7 +127,7 @@ actor RouterJobHandler {
                         host.lastStatus = status
                     } catch {
                         host.lastStatus = nil
-                        logger.error("Error getting status for host", host: host, error: error)
+                        logger.error("Executor API Get Status Error", host: host, error: error)
                     }
                 }
             }
@@ -149,7 +149,7 @@ actor RouterJobHandler {
 
 private extension RouterJobHandler {
     static func sendJob(host: TartHost, job: RouterPendingJob, logger: Logger) async throws {
-        logger.info("Sending job to host", job: job, host: host)
+        logger.info("Executor Send Job", job: job, host: host)
         var hostRequest = URLRequest(url: host.url.appending(path: "/router"))
         hostRequest.httpMethod = "POST"
         hostRequest.httpBody = job.bodyData
@@ -166,7 +166,6 @@ private extension RouterJobHandler {
     }
 
     static func cancelJobsByLabels(host: TartHost, labels: Set<String>, logger: Logger) async throws {
-        logger.info("Sending cancel request to host", host: host, labels: labels)
         var hostRequest = URLRequest(url: host.url.appending(path: "/cancel"))
         hostRequest.httpMethod = "POST"
         hostRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -200,14 +199,14 @@ private extension RouterJobHandler {
                     try await Self.sendJob(host: host, job: job, logger: logger)
                     return true
                 } catch {
-                    logger.error("Failed to send job to host", job: job, host: host, error: error)
+                    logger.error("Executor API Send Job Error", job: job, host: host, error: error)
                 }
             }
         }
         if lowestCapacityHost != nil {
             return false
         } else {
-            logger.error("No host found to take job", job: job)
+            logger.error("Job Router No Host Can Handle Job CPU/Memory", job: job)
             return false
         }
     }

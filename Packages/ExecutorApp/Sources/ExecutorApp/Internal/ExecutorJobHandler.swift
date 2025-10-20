@@ -204,7 +204,7 @@ private extension ExecutorJobHandler {
         do {
             _ = try await URLSession.shared.data(for: request)
         } catch {
-            logger.error("Executor Router API Call Error", error: error, [
+            logger.error("Router API Call Error", error: error, [
                 LogParameterKey.routerUrl: routerUrl.absoluteString
             ])
         }
