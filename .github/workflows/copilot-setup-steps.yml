@@ -1,0 +1,66 @@
+name: 'Copilot setup steps'
+
+on:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+  workflow_dispatch:
+
+jobs:
+  copilot-setup-steps:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name
+    timeout-minutes: 59
+    runs-on: arc-runner-set
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Install packages
+        run: |
+          sudo apt-get update
+          sudo apt-get --yes --no-install-recommends install \
+            ca-certificates \
+            binutils \
+            gnupg2 \
+            libc6-dev \
+            libcurl4-openssl-dev \
+            libgcc-11-dev \
+            libpython3-dev \
+            libstdc++-11-dev \
+            libxml2-dev \
+            libz3-dev \
+            pkg-config \
+            python3-lldb-13 \
+            zlib1g-dev \
+            openssl \
+            libssl-dev
+
+      - name: Set up Swift with Swiftly
+        run: |
+          # Download swiftly for the current architecture
+          curl -L https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz > swiftly.tar.gz
+          tar zxf swiftly.tar.gz
+          
+          # Initialize swiftly (verbose, assume yes for prompts, skip auto-install of latest)
+          ./swiftly init --verbose --assume-yes --skip-install
+          
+          # Source the environment to make swiftly available in PATH
+          . "${SWIFTLY_HOME_DIR:-$HOME/.local/share/swiftly}/env.sh"
+          
+          # Install specific Swift toolchain version
+          swiftly install latest --post-install-file=post-install.sh
+          
+          # Run post-install script if it exists (handles system dependencies)
+          if [ -f post-install.sh ]; then
+            sudo bash post-install.sh
+          fi
+          
+          # Verify installation
+          swift --version

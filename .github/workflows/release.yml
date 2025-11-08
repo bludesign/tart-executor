@@ -11,7 +11,7 @@ jobs:
     runs-on: [tartelet, "10.0.2.54:5000/tart/macos-tahoe-xcode:v26.0.1", "memory:24576", "cpu:6"]
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-tags: true
           fetch-depth: 0
