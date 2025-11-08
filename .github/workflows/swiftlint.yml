@@ -9,8 +9,8 @@ jobs:
     runs-on: [tartelet, "10.0.2.54:5000/tart/macos-tahoe-xcode:v26.0.1", "memory:4096", "cpu:2"]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: recursive
       - name: Run swiftlint
-        run: swiftlint --quiet --reporter github-actions-logging
+        uses: norio-nomura/action-swiftlint@3.2.1

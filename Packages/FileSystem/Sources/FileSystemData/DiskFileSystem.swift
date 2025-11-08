@@ -1,5 +1,8 @@
 import FileSystemDomain
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 public final class DiskFileSystem: FileSystem {
     public var applicationSupportDirectoryURL: URL {
