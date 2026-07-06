@@ -43,4 +43,18 @@ extension TartVirtualMachineProvider: VirtualMachineProvider {
         )
         return connectingVirutalMachine
     }
+
+    public func removeVirtualMachines(namePrefix: String) async throws -> [String] {
+        let virtualMachineNames = try await tart.list()
+        var removedNames = [String]()
+        for virtualMachineName in virtualMachineNames where virtualMachineName.hasPrefix(namePrefix) {
+            do {
+                try await tart.delete(name: virtualMachineName)
+                removedNames.append(virtualMachineName)
+            } catch {
+                logger.error("Failed removing virtual machine \(virtualMachineName): \(error.localizedDescription)")
+            }
+        }
+        return removedNames
+    }
 }

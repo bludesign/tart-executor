@@ -93,7 +93,7 @@ Create config file in home directory named `tart-router.yaml`
 # Host name for metrics and logs (requried)
 hostname: macbook-router
 # Runner label to look for in Github action job labels should match the tart-executors (required)
-label: tartelet
+labels: tartelet
 # Port to listen on for Github webhook calls (required)
 port: 3251
 # Optional logging endpoint URL to send NDJSON via HTTP POST (optional)
@@ -143,7 +143,7 @@ You can use a brew service to run the executor and router in the background and 
 
 ### MacOS Local Network Access
 
-The first time a job starts on a host machine you will need to allow local network access when the popup message shows up once you allow this you will probably need to cancel the job, check that Tart has no leftover temporary VMs running `tart list`, and check Github settings to make sure there are no leftover runners. Then restart `tart-executor` and rerun the job. This will probably happen every time you update `tart-executor`.
+The first time a job starts on a host machine you will need to allow local network access when the popup message shows up once you allow this you will probably need to cancel the job and check Github settings to make sure there are no leftover runners. Then restart `tart-executor` and rerun the job. This will probably happen every time you update `tart-executor`. On startup `tart-executor` automatically removes leftover temporary VMs (named `tart-executor-*`) from a previous run.
 
 ## 👨‍🔧 How does it work?
 

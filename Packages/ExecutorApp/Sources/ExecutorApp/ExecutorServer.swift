@@ -39,10 +39,12 @@ final class ExecutorServer {
     private var gitHubRunnerLabels: Set<String>
     private var cancellables = Set<AnyCancellable>()
     private let settings: ExecutorServerSettings
+    private let virtualMachineProvider: VirtualMachineProvider
 
     init(logger: Logger, virtualMachineProvider: VirtualMachineProvider, settings: ExecutorServerSettings) {
         self.logger = logger
         self.settings = settings
+        self.virtualMachineProvider = virtualMachineProvider
 
         let labelsArray = settings.runnerLabels.components(separatedBy: ",").map { label in
             label.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -181,7 +183,27 @@ tart_executor_memory_used\(labels) \(jobStatus.memoryUsed)
                 return .init(statusCode: .badRequest)
             }
         }
-        try await server.run()
+        // Bind the port before removing leftover machines so that a second executor instance
+        // started by mistake fails on the port instead of deleting the machines of the
+        // instance that is already running.
+        let serverTask = Task {
+            try await server.run()
+        }
+        do {
+            try await server.waitUntilListening()
+        } catch {
+            // Surface the underlying error, such as the port being in use, if the server
+            // stopped instead of reaching the listening state.
+            serverTask.cancel()
+            do {
+                try await serverTask.value
+            } catch let serverError where !(serverError is CancellationError) {
+                throw serverError
+            }
+            throw error
+        }
+        await removeLeftoverVirtualMachines()
+        try await serverTask.value
     }
 
     func stop() async {
@@ -191,6 +213,23 @@ tart_executor_memory_used\(labels) \(jobStatus.memoryUsed)
 }
 
 private extension ExecutorServer {
+    func removeLeftoverVirtualMachines() async {
+        do {
+            let removedNames = try await virtualMachineProvider.removeVirtualMachines(
+                namePrefix: ExecutorConstants.virtualMachineNamePrefix
+            )
+            guard !removedNames.isEmpty else { return }
+            logger.info("Executor Removed Leftover Virtual Machines", parameters: [
+                LogParameterKey.vmName: removedNames.joined(separator: ","),
+                LogParameterKey.cancelledCount: "\(removedNames.count)"
+            ])
+        } catch {
+            logger.error("Executor Removing Leftover Virtual Machines Error", parameters: [
+                LogParameterKey.error: error.localizedDescription
+            ])
+        }
+    }
+
     func handleWorkflowJob(_ workflowJob: WorkflowJob) async -> Bool {
         guard gitHubRunnerLabels.isSubset(of: workflowJob.labels) else {
             logger.error("Executor Handle Workflow Job Skipped For Labels", parameters: [

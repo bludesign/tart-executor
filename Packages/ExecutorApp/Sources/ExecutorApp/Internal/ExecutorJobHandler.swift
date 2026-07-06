@@ -4,6 +4,7 @@ import TartCommon
 import VirtualMachineDomain
 
 struct ActiveJob {
+    let jobId: Int
     let labels: Set<String>
     let task: Task<(), Never>
     let cpu: Int?
@@ -44,58 +45,15 @@ actor ExecutorJobHandler {
     func handle(pendingJob: ExecutorPendingJob) -> Bool {
         switch pendingJob.action {
         case .routerStart:
-            logger.info("Job Handle Router Started", pendingJob: pendingJob, [
-                LogParameterKey.willStart: "\(activeJobs.count < numberOfMachines)",
-                LogParameterKey.activeJobs: "\(activeJobs.count)",
-                LogParameterKey.maxMachines: "\(numberOfMachines)"
-            ])
-
-            if activeJobs.count < numberOfMachines {
-                start(pendingJob: pendingJob)
-            } else {
-                return false
-            }
+            return handleRouterStart(pendingJob: pendingJob)
         case .waiting:
             logger.info("Job Handle Waiting", pendingJob: pendingJob)
         case .queued:
-            logger.info("Job Handle Pending", pendingJob: pendingJob)
-            pendingJobs[pendingJob.id] = pendingJob
-
-            if activeJobs.count < numberOfMachines {
-                start(pendingJob: pendingJob)
-            }
+            handleQueued(pendingJob: pendingJob)
         case .inProgress:
-            logger.info("Job Handle In Progress", pendingJob: pendingJob)
-            let oldJob = pendingJobs.removeValue(forKey: pendingJob.id)
-            if let oldJob, !oldJob.didStart {
-                pendingJobs.values.first { existingJob in
-                    existingJob.workflowJob.labels == pendingJob.workflowJob.labels && existingJob.didStart
-                }?.didStart = false
-            }
-            inProgressJobs[pendingJob.id] = pendingJob
+            handleInProgress(pendingJob: pendingJob)
         case .completed:
-            logger.info("Job Handle Completed", pendingJob: pendingJob)
-            inProgressJobs.removeValue(forKey: pendingJob.id)
-            guard pendingJobs[pendingJob.id] != nil else {
-                return true
-            }
-            pendingJobs.removeValue(forKey: pendingJob.id)
-            let otherPending = pendingJobs.values.filter { existingJob in
-                existingJob.workflowJob.labels == pendingJob.workflowJob.labels
-            }.count
-            let otherInProgress = inProgressJobs.values.filter { existingJob in
-                existingJob.workflowJob.labels == pendingJob.workflowJob.labels
-            }.count
-            let running = activeJobs.values.filter { activeJob in
-                activeJob.labels == pendingJob.workflowJob.labels
-            }.count
-            if otherPending == 0, otherInProgress == 0 {
-                cancelJobsByLabels(pendingJob.workflowJob.labels)
-            } else if otherInProgress <= running {
-                pendingJobs.values.first { existingJob in
-                    existingJob.workflowJob.labels == pendingJob.workflowJob.labels && !existingJob.didStart
-                }?.didStart = true
-            }
+            handleCompleted(pendingJob: pendingJob)
         case .unknown:
             logger.info("Job Unknown Added", pendingJob: pendingJob)
         }
@@ -125,6 +83,101 @@ actor ExecutorJobHandler {
 }
 
 private extension ExecutorJobHandler {
+    func handleRouterStart(pendingJob: ExecutorPendingJob) -> Bool {
+        let isAlreadyRunning = activeJobs.values.contains { $0.jobId == pendingJob.id }
+        let willStart = !isAlreadyRunning && activeJobs.count < numberOfMachines
+        logger.info("Job Handle Router Started", pendingJob: pendingJob, [
+            LogParameterKey.willStart: "\(willStart)",
+            LogParameterKey.activeJobs: "\(activeJobs.count)",
+            LogParameterKey.maxMachines: "\(numberOfMachines)"
+        ])
+        if isAlreadyRunning {
+            // The router sent a job this executor already has a virtual machine for. Report
+            // success so the router does not send it elsewhere as well.
+            return true
+        }
+        guard willStart else {
+            return false
+        }
+        start(pendingJob: pendingJob)
+        return true
+    }
+
+    func handleQueued(pendingJob: ExecutorPendingJob) {
+        guard pendingJobs[pendingJob.id] == nil, inProgressJobs[pendingJob.id] == nil else {
+            // Redelivered webhook for a job that is already tracked. Starting it again would
+            // create a second virtual machine for the same job.
+            logger.info("Job Handle Pending Duplicate Skipped", pendingJob: pendingJob)
+            return
+        }
+        logger.info("Job Handle Pending", pendingJob: pendingJob)
+        pendingJobs[pendingJob.id] = pendingJob
+
+        if activeJobs.count < numberOfMachines {
+            start(pendingJob: pendingJob)
+        }
+    }
+
+    func handleInProgress(pendingJob: ExecutorPendingJob) {
+        logger.info("Job Handle In Progress", pendingJob: pendingJob)
+        let oldJob = pendingJobs.removeValue(forKey: pendingJob.id)
+        if let oldJob, !oldJob.didStart {
+            // The job started without a machine of its own, so it is running on a machine
+            // that was started for another queued job with the same labels. That job lost its
+            // machine; mark it unstarted and start a machine for it if there is capacity.
+            pendingJobs.values.first { existingJob in
+                existingJob.workflowJob.labels == pendingJob.workflowJob.labels && existingJob.didStart
+            }?.didStart = false
+            startNextPendingJob()
+        }
+        inProgressJobs[pendingJob.id] = pendingJob
+    }
+
+    func handleCompleted(pendingJob: ExecutorPendingJob) {
+        logger.info("Job Handle Completed", pendingJob: pendingJob)
+        let removedInProgressJob = inProgressJobs.removeValue(forKey: pendingJob.id)
+        let removedPendingJob = pendingJobs.removeValue(forKey: pendingJob.id)
+        guard removedInProgressJob != nil || removedPendingJob != nil else {
+            return
+        }
+        let labels = pendingJob.workflowJob.labels
+        let otherPending = pendingJobs.values.filter { existingJob in
+            existingJob.workflowJob.labels == labels
+        }.count
+        let otherInProgress = inProgressJobs.values.filter { existingJob in
+            existingJob.workflowJob.labels == labels
+        }.count
+        if otherPending == 0, otherInProgress == 0 {
+            // No jobs are left with these labels, so any idle machine waiting for work with
+            // these labels will never receive a job.
+            scheduleIdleMachineCancellation(labels: labels)
+        } else if removedPendingJob?.didStart == true {
+            // The job was cancelled while queued but its machine is already up and will be
+            // picked by another queued job with the same labels. Hand the machine over so that
+            // job does not start a second one.
+            pendingJobs.values.first { existingJob in
+                existingJob.workflowJob.labels == labels && !existingJob.didStart
+            }?.didStart = true
+        }
+    }
+
+    // Cancelling immediately would also hit the machine that ran the job while it is still
+    // shutting itself down, so wait before checking again whether machines with these labels
+    // are still needed.
+    func scheduleIdleMachineCancellation(labels: Set<String>) {
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(ExecutorConstants.idleMachineCancellationDelay))
+            await self?.cancelIdleMachines(labels: labels)
+        }
+    }
+
+    func cancelIdleMachines(labels: Set<String>) {
+        let jobsWithLabelsExist = pendingJobs.values.contains { $0.workflowJob.labels == labels }
+            || inProgressJobs.values.contains { $0.workflowJob.labels == labels }
+        guard !jobsWithLabelsExist else { return }
+        cancelJobsByLabels(labels)
+    }
+
     func start(pendingJob: ExecutorPendingJob) {
         logger.info("Job Executor Starting", pendingJob: pendingJob)
         pendingJob.didStart = true
@@ -135,7 +188,7 @@ private extension ExecutorJobHandler {
                 logger.info("Virtual Machine Creating", pendingJob: pendingJob, uuid: uuid)
                 let virtualMachine = try await virtualMachineProvider.createVirtualMachine(
                     imageName: pendingJob.imageName,
-                    name: "tart-executor-\(pendingJob.workflowJob.id)-\(uuid.uuidString)",
+                    name: "\(ExecutorConstants.virtualMachineNamePrefix)\(pendingJob.workflowJob.id)-\(uuid.uuidString)",
                     runnerLabels: runnerLabels,
                     isInsecure: pendingJob.isInsecure,
                     cpu: pendingJob.cpu,
@@ -183,21 +236,30 @@ private extension ExecutorJobHandler {
             }
         }
 
-        activeJobs[uuid]?.task.cancel()
-        activeJobs[uuid] = .init(labels: pendingJob.workflowJob.labels, task: task, cpu: pendingJob.cpu, memory: pendingJob.memory)
+        activeJobs[uuid] = .init(
+            jobId: pendingJob.id,
+            labels: pendingJob.workflowJob.labels,
+            task: task,
+            cpu: pendingJob.cpu,
+            memory: pendingJob.memory
+        )
+    }
+
+    func startNextPendingJob() {
+        guard activeJobs.count < numberOfMachines else { return }
+        guard let pendingJob = pendingJobs.first(where: { !$0.value.didStart })?.value else { return }
+        start(pendingJob: pendingJob)
     }
 
     func remove(uuid: UUID) {
-        let activeJob = activeJobs.removeValue(forKey: uuid)
-        if activeJobs.count < numberOfMachines, let pendingJob = pendingJobs.first(where: { !$0.value.didStart })?.value {
-            start(pendingJob: pendingJob)
-        }
+        activeJobs.removeValue(forKey: uuid)
+        startNextPendingJob()
         Task {
-            await activeJobEnded(activeJob: activeJob)
+            await activeJobEnded()
         }
     }
 
-    func activeJobEnded(activeJob: ActiveJob? = nil) async {
+    func activeJobEnded() async {
         guard let routerUrl = routerUrl.flatMap({ URL(string: $0) }) else { return }
         var request = URLRequest(url: routerUrl.appending(path: "runner"))
         request.httpMethod = "POST"

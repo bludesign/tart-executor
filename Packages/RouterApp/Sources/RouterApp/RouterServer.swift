@@ -21,7 +21,7 @@ public final class RouterServer {
         self.logger = logger
         self.labels = labels
         self.hostname = hostname
-        jobHandler = .init(hosts: hosts, logger: logger)
+        jobHandler = .init(hosts: self.hosts, logger: logger)
 
         Task {
             await jobHandler.updateStatus(shouldSendJobs: false)
@@ -36,6 +36,7 @@ public final class RouterServer {
 
     public func run(port: Int) async throws {
         let server = HTTPServer(port: UInt16(port))
+        self.server = server
 
         await server.appendRoute("GET /metrics") { [weak self] _ in
             guard let self else {
