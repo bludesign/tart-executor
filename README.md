@@ -35,6 +35,10 @@ cpuLimit: 10
 totalMemory: 16384
 # Optional logging endpoint URL to send NDJSON via HTTP POST (optional)
 loggingEndpoint: http://10.0.1.50:8080/logs
+# Optional bearer token protecting the management API at /api/v1/* (optional)
+# When set, /api/v1/* (except /health, /openapi.yaml, /docs) requires the header
+# Authorization: Bearer <token>. When omitted the management API is open.
+apiToken: change-me-secret
 tart:
   # Custom home folder to use for Tart if you use an external drive you will need to allow access when the dialog shows up (optional)
   homeFolder: /Volumes/Files/tart
@@ -98,6 +102,10 @@ labels: tartelet
 port: 3251
 # Optional logging endpoint URL to send NDJSON via HTTP POST (optional)
 loggingEndpoint: http://10.0.1.50:8080/logs
+# Optional bearer token protecting the management API at /api/v1/* (optional)
+# When set, /api/v1/* (except /health, /openapi.yaml, /docs) requires the header
+# Authorization: Bearer <token>. When omitted the management API is open.
+apiToken: change-me-secret
 # Array of tart-executor hosts to forward Github action jobs to (required)
 hosts:
     # Hostname set in config for tart-executor (required)
@@ -144,6 +152,60 @@ You can use a brew service to run the executor and router in the background and 
 ### MacOS Local Network Access
 
 The first time a job starts on a host machine you will need to allow local network access when the popup message shows up once you allow this you will probably need to cancel the job and check Github settings to make sure there are no leftover runners. Then restart `tart-executor` and rerun the job. This will probably happen every time you update `tart-executor`. On startup `tart-executor` automatically removes leftover temporary VMs (named `tart-executor-*`) from a previous run.
+
+## 🔌 Management & Debugging API
+
+Both `tart-executor` and `tart-router` expose a JSON management/debugging API under `/api/v1` on the same port they already listen on (the executor's `webhook.port`, e.g. `3250`, and the router's `port`, e.g. `3251`). Use it to inspect and control a running instance: list and stop jobs, manage Tart VMs and images, and view effective settings, status, and health.
+
+### Authentication
+
+Set `apiToken` in the config to require a bearer token. When set, every `/api/v1/*` endpoint except `/health`, `/openapi.yaml`, and `/docs` requires the header `Authorization: Bearer <token>`. When `apiToken` is omitted the API is open, matching the existing endpoints which rely on private-network placement.
+
+### Interactive docs
+
+Each service serves its own OpenAPI 3.1 spec and a browsable Redoc page:
+
+- Spec: `GET /api/v1/openapi.yaml`
+- Docs: open `http://<host>:<port>/api/v1/docs` in a browser
+
+### tart-executor endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/health` | Liveness and version |
+| GET | `/api/v1/status` | Job counts and capacity |
+| GET | `/api/v1/settings` | Effective settings (secrets redacted) |
+| GET | `/api/v1/jobs` | List jobs (optional `state` query: `pending`, `in_progress`, `active`) |
+| GET | `/api/v1/jobs/{id}` | Job detail |
+| POST | `/api/v1/jobs/{id}/cancel` | Cancel one job by id |
+| POST | `/api/v1/jobs/cancel` | Cancel by labels (body `{"labels":["..."]}`) |
+| POST | `/api/v1/jobs/cancel-all` | Cancel all active jobs |
+| GET | `/api/v1/vms` | List local Tart VMs / images |
+| GET | `/api/v1/vms/{name}` | VM detail including IP |
+| DELETE | `/api/v1/vms/{name}` | Delete a VM |
+| POST | `/api/v1/images/pull` | Pull an image (body `{"name":"...","isInsecure":false}`) |
+
+### tart-router endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/health` | Liveness and version |
+| GET | `/api/v1/status` | Router queue and capacity |
+| GET | `/api/v1/settings` | Effective settings |
+| GET | `/api/v1/jobs` | List tracked jobs |
+| GET | `/api/v1/jobs/{id}` | Job detail |
+| POST | `/api/v1/jobs/{id}/cancel` | Cancel one job (and on its host) |
+| POST | `/api/v1/jobs/cancel` | Cancel by labels across all hosts |
+| GET | `/api/v1/hosts` | List executors and their last-polled status |
+| GET | `/api/v1/hosts/{hostname}` | Executor detail |
+| POST | `/api/v1/hosts/refresh` | Force an immediate status re-poll |
+
+Example:
+
+```bash
+curl -H "Authorization: Bearer <token>" http://127.0.0.1:3250/api/v1/jobs
+curl -X POST -H "Authorization: Bearer <token>" http://127.0.0.1:3250/api/v1/jobs/42/cancel
+```
 
 ## 👨‍🔧 How does it work?
 

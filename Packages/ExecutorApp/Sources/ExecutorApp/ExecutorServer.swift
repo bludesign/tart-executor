@@ -5,10 +5,6 @@ import LoggingDomain
 import TartCommon
 import VirtualMachineDomain
 
-struct CancelJobsRequest: Codable {
-    let labels: Set<String>
-}
-
 public protocol ExecutorServerSettings {
     var numberOfMachines: Int { get }
     var runnerLabels: String { get }
@@ -25,6 +21,7 @@ public protocol ExecutorServerSettings {
     var cpuLimit: Int { get }
     var totalMemory: Int { get }
     var loggingEndpoint: String? { get }
+    var apiToken: String? { get }
 }
 
 final class ExecutorServer {
@@ -32,14 +29,19 @@ final class ExecutorServer {
     private let encoder = JSONEncoder()
     private var server: HTTPServer?
 
+    // Management API
+    let startedAt = Date()
+    let apiEncoder = JSONEncoder.api
+    let apiDecoder = JSONDecoder.api
+
     // Fleet webhook functionality
-    private let logger: Logger
+    let logger: Logger
     private var executorServerTask: Task<(), any Error>?
-    private let jobHandler: ExecutorJobHandler
+    let jobHandler: ExecutorJobHandler
     private var gitHubRunnerLabels: Set<String>
     private var cancellables = Set<AnyCancellable>()
-    private let settings: ExecutorServerSettings
-    private let virtualMachineProvider: VirtualMachineProvider
+    let settings: ExecutorServerSettings
+    let virtualMachineProvider: VirtualMachineProvider
 
     init(logger: Logger, virtualMachineProvider: VirtualMachineProvider, settings: ExecutorServerSettings) {
         self.logger = logger
@@ -183,6 +185,8 @@ tart_executor_memory_used\(labels) \(jobStatus.memoryUsed)
                 return .init(statusCode: .badRequest)
             }
         }
+
+        await registerManagementRoutes(on: server)
         // Bind the port before removing leftover machines so that a second executor instance
         // started by mistake fails on the port instead of deleting the machines of the
         // instance that is already running.

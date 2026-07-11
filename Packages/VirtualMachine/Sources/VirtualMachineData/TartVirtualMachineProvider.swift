@@ -57,4 +57,20 @@ extension TartVirtualMachineProvider: VirtualMachineProvider {
         }
         return removedNames
     }
+
+    public func listVirtualMachines() async throws -> [String] {
+        try await tart.list()
+    }
+
+    public func deleteVirtualMachine(name: String) async throws {
+        try await tart.delete(name: name)
+    }
+
+    public func pullImage(name: String, isInsecure: Bool) async throws {
+        try await tart.pull(sourceName: name, isInsecure: isInsecure)
+    }
+
+    public func ipAddress(ofVirtualMachineNamed name: String) async throws -> String {
+        try await tart.getIPAddress(ofVirtualMachineNamed: name, shouldUseArpResolver: false)
+    }
 }

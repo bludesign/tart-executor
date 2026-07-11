@@ -2,10 +2,6 @@ import Foundation
 import LoggingDomain
 import TartCommon
 
-struct CancelJobsRequest: Codable {
-    let labels: Set<String>
-}
-
 actor RouterJobHandler {
     private enum JobError: Error {
         case errorSending
@@ -141,6 +137,64 @@ actor RouterJobHandler {
             }
             shouldSend = true
         } while needsAnotherUpdate
+    }
+
+    // MARK: - Management API support
+
+    func jobsSnapshot() -> [RouterJobDTO] {
+        jobs.values
+            .map { routerJobDTO(for: $0) }
+            .sorted { $0.id < $1.id }
+    }
+
+    func job(id: Int) -> RouterJobDTO? {
+        jobs[id].map { routerJobDTO(for: $0) }
+    }
+
+    func hostsSnapshot() -> [RouterHostDTO] {
+        hosts.map { host in
+            RouterHostDTO(
+                hostname: host.hostname,
+                url: host.url.absoluteString,
+                priority: host.priority,
+                cpuLimit: host.cpuLimit,
+                memoryLimit: host.memoryLimit,
+                reachable: host.lastStatus != nil,
+                lastStatus: host.lastStatus
+            )
+        }
+    }
+
+    func host(named hostname: String) -> RouterHostDTO? {
+        hostsSnapshot().first { $0.hostname == hostname }
+    }
+
+    func statusCounts() -> (pendingJobs: Int, pendingJobsUnsent: Int, pendingJobsQueued: Int, availableVirtualMachines: Int, availableHosts: Int) {
+        (pendingJobs, pendingJobsUnsent, pendingJobsQueued, availableVirtualMachines, availableHosts)
+    }
+
+    /// Removes a job from the router queue and, if it was already dispatched, cancels it on the
+    /// host it was sent to (by label set). Returns whether a job with that id existed.
+    func cancelJob(id: Int) async -> Bool {
+        guard let job = jobs.removeValue(forKey: id) else {
+            return false
+        }
+        logger.info("Job Router Cancelled By Id", job: job)
+        if let host = job.sentToHost {
+            try? await Self.cancelJobsByLabels(host: host, labels: job.workflowJob.labels, logger: logger)
+        }
+        return true
+    }
+
+    private func routerJobDTO(for job: RouterPendingJob) -> RouterJobDTO {
+        RouterJobDTO(
+            id: job.id,
+            action: job.workflowJob.action,
+            labels: job.workflowJob.labels.sorted(),
+            sentToHost: job.sentToHost?.hostname,
+            receivedAt: job.receivedAt,
+            sentAt: job.sentAt
+        )
     }
 }
 

@@ -10,6 +10,7 @@ final class ExecutorPendingJob: Identifiable {
     let cpu: Int?
     let memory: Int?
     var didStart = false
+    let queuedAt = Date()
 
     var id: Int {
         workflowJob.id

@@ -7,7 +7,13 @@ final class RouterPendingJob: Identifiable {
     var workflowJob: WorkflowJob
     let headers: [HTTPHeader: String]
     let bodyData: Data
-    var sentToHost: TartHost?
+    let receivedAt = Date()
+    private(set) var sentAt: Date?
+    var sentToHost: TartHost? {
+        didSet {
+            sentAt = sentToHost != nil ? Date() : nil
+        }
+    }
 
     init(workflowJob: WorkflowJob, headers: [HTTPHeader: String], bodyData: Data) {
         self.id = workflowJob.id

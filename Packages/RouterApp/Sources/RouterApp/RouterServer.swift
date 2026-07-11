@@ -7,20 +7,28 @@ import TartCommon
 public final class RouterServer {
     private let decoder = JSONDecoder()
     private var server: HTTPServer?
-    private let hosts: [TartHost]
-    private let labels: Set<String>
-    private let hostname: String
+    let hosts: [TartHost]
+    let labels: Set<String>
+    let hostname: String
     private let logger: Logger
-    private let jobHandler: RouterJobHandler
+    let jobHandler: RouterJobHandler
     private var timer: Timer?
 
-    public init(hosts: [TartHost], labels: Set<String>, hostname: String, logger: Logger) {
+    // Management API
+    let apiToken: String?
+    let startedAt = Date()
+    let apiEncoder = JSONEncoder.api
+    let apiDecoder = JSONDecoder.api
+    private(set) var listeningPort = 0
+
+    public init(hosts: [TartHost], labels: Set<String>, hostname: String, apiToken: String?, logger: Logger) {
         self.hosts = hosts.sorted { lhs, rhs in
             lhs.priority < rhs.priority
         }
         self.logger = logger
         self.labels = labels
         self.hostname = hostname
+        self.apiToken = apiToken
         jobHandler = .init(hosts: self.hosts, logger: logger)
 
         Task {
@@ -35,6 +43,7 @@ public final class RouterServer {
     }
 
     public func run(port: Int) async throws {
+        listeningPort = port
         let server = HTTPServer(port: UInt16(port))
         self.server = server
 
@@ -120,6 +129,8 @@ public final class RouterServer {
                 throw error
             }
         }
+
+        await registerManagementRoutes(on: server)
 
         try await server.run()
     }

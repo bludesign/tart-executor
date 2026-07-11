@@ -9,6 +9,8 @@ struct ActiveJob {
     let task: Task<(), Never>
     let cpu: Int?
     let memory: Int?
+    let vmName: String
+    let startedAt: Date
 }
 
 actor ExecutorJobHandler {
@@ -66,7 +68,8 @@ actor ExecutorJobHandler {
         }
     }
 
-    func cancelJobsByLabels(_ labels: Set<String>) {
+    @discardableResult
+    func cancelJobsByLabels(_ labels: Set<String>) -> Int {
         var cancalledJobs = 0
         activeJobs.forEach { _, activeJob in
             guard activeJob.labels == labels else {
@@ -79,6 +82,79 @@ actor ExecutorJobHandler {
             LogParameterKey.cancelledCount: "\(cancalledJobs)",
             LogParameterKey.labels: labels.joined(separator: ",")
         ])
+        return cancalledJobs
+    }
+
+    /// Snapshot of every job currently tracked (queued, in-progress, or with a lingering VM),
+    /// one entry per job id, most-advanced state winning.
+    func jobsSnapshot() -> [ExecutorJobDTO] {
+        var vmByJobId = [Int: (uuid: UUID, job: ActiveJob)]()
+        for (uuid, job) in activeJobs where vmByJobId[job.jobId] == nil {
+            vmByJobId[job.jobId] = (uuid, job)
+        }
+
+        func makeDTO(id: Int, pending: ExecutorPendingJob?, state: ExecutorJobState) -> ExecutorJobDTO {
+            let vm = vmByJobId[id]
+            let labels: Set<String>
+            if let pendingLabels = pending?.workflowJob.labels {
+                labels = pendingLabels
+            } else if let vmLabels = vm?.job.labels {
+                labels = vmLabels
+            } else {
+                labels = []
+            }
+            return ExecutorJobDTO(
+                id: id,
+                action: pending?.workflowJob.action ?? .unknown,
+                state: state,
+                labels: labels.sorted(),
+                didStart: pending?.didStart ?? true,
+                cpu: pending?.cpu ?? vm?.job.cpu,
+                memory: pending?.memory ?? vm?.job.memory,
+                imageName: pending?.imageName,
+                vmName: vm?.job.vmName,
+                vmUUID: vm?.uuid.uuidString,
+                queuedAt: pending?.queuedAt,
+                startedAt: vm?.job.startedAt
+            )
+        }
+
+        var byId = [Int: ExecutorJobDTO]()
+        for (id, job) in inProgressJobs {
+            byId[id] = makeDTO(id: id, pending: job, state: .inProgress)
+        }
+        for (id, job) in pendingJobs where byId[id] == nil {
+            byId[id] = makeDTO(id: id, pending: job, state: .pending)
+        }
+        for (id, _) in vmByJobId where byId[id] == nil {
+            byId[id] = makeDTO(id: id, pending: nil, state: .active)
+        }
+        return byId.values.sorted { $0.id < $1.id }
+    }
+
+    func job(id: Int) -> ExecutorJobDTO? {
+        jobsSnapshot().first { $0.id == id }
+    }
+
+    /// Cancels a single job by GitHub id: cancels any running VM task and drops it from the
+    /// pending/in-progress queues. Returns whether anything was cancelled.
+    @discardableResult
+    func cancel(jobId: Int) -> Bool {
+        var cancelled = false
+        for (_, job) in activeJobs where job.jobId == jobId {
+            job.task.cancel()
+            cancelled = true
+        }
+        if pendingJobs.removeValue(forKey: jobId) != nil {
+            cancelled = true
+        }
+        if inProgressJobs.removeValue(forKey: jobId) != nil {
+            cancelled = true
+        }
+        if cancelled {
+            logger.info("Job Cancelled By Id", [LogParameterKey.jobId: "\(jobId)"])
+        }
+        return cancelled
     }
 }
 
@@ -183,12 +259,13 @@ private extension ExecutorJobHandler {
         pendingJob.didStart = true
         let runnerLabels = pendingJob.workflowJob.labels.joined(separator: ",")
         let uuid = UUID()
+        let vmName = "\(ExecutorConstants.virtualMachineNamePrefix)\(pendingJob.workflowJob.id)-\(uuid.uuidString)"
         let task = Task { [weak self, logger, virtualMachineProvider] in
             do {
                 logger.info("Virtual Machine Creating", pendingJob: pendingJob, uuid: uuid)
                 let virtualMachine = try await virtualMachineProvider.createVirtualMachine(
                     imageName: pendingJob.imageName,
-                    name: "\(ExecutorConstants.virtualMachineNamePrefix)\(pendingJob.workflowJob.id)-\(uuid.uuidString)",
+                    name: vmName,
                     runnerLabels: runnerLabels,
                     isInsecure: pendingJob.isInsecure,
                     cpu: pendingJob.cpu,
@@ -241,7 +318,9 @@ private extension ExecutorJobHandler {
             labels: pendingJob.workflowJob.labels,
             task: task,
             cpu: pendingJob.cpu,
-            memory: pendingJob.memory
+            memory: pendingJob.memory,
+            vmName: vmName,
+            startedAt: Date()
         )
     }
 
