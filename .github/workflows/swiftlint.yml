@@ -6,15 +6,17 @@ on:
 
 jobs:
   swiftlint:
-    runs-on: [tartelet, "10.0.2.54:5000/tart/macos-tahoe-xcode:v26.0.1", "memory:4096", "cpu:2"]
+    runs-on: [tartelet, "10.0.2.54:5000/tart/macos-tahoe-xcode:v26.6", "memory:4096", "cpu:2"]
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
           submodules: recursive
+      - name: Set up Mint and bootstrap tools
+        uses: irgaly/setup-mint@v1
       - name: Verify embedded OpenAPI spec is up to date
         run: |
           ./scripts/generate-openapi-spec.sh
           git diff --exit-code -- Packages/*/Sources/*/Internal/OpenAPISpec.swift
-      - name: Run swiftlint
-        uses: norio-nomura/action-swiftlint@3.2.1
+      - name: Run SwiftLint
+        run: mint run swiftlint --quiet --reporter github-actions-logging
