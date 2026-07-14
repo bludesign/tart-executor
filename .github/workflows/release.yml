@@ -127,9 +127,10 @@ jobs:
             builds/tart-executor.zip
             builds/tart-router.zip
       - name: Update homebrew tart-executor
-        uses: mislav/bump-homebrew-formula-action@v3
+        uses: mislav/bump-homebrew-formula-action@v4
         with:
           formula-name: tart-executor
+          tag-name: ${{ steps.release.outputs.tag }}
           download-url: https://github.com/bludesign/tart-executor/releases/download/${{ steps.release.outputs.tag }}/tart-executor.zip
           homebrew-tap: bludesign/homebrew-tart
           create-pullrequest: false
@@ -137,9 +138,10 @@ jobs:
         env:
           COMMITTER_TOKEN: ${{ secrets.COMMITTER_TOKEN }}
       - name: Update homebrew tart-router
-        uses: mislav/bump-homebrew-formula-action@v3
+        uses: mislav/bump-homebrew-formula-action@v4
         with:
           formula-name: tart-router
+          tag-name: ${{ steps.release.outputs.tag }}
           download-url: https://github.com/bludesign/tart-executor/releases/download/${{ steps.release.outputs.tag }}/tart-router.zip
           homebrew-tap: bludesign/homebrew-tart
           create-pullrequest: false
