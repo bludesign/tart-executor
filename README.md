@@ -151,7 +151,9 @@ You can use a brew service to run the executor and router in the background and 
 
 ### MacOS Local Network Access
 
-The first time a job starts on a host machine you will need to allow local network access when the popup message shows up once you allow this you will probably need to cancel the job and check Github settings to make sure there are no leftover runners. Then restart `tart-executor` and rerun the job. This will probably happen every time you update `tart-executor`. On startup `tart-executor` automatically removes leftover temporary VMs (named `tart-executor-*`) from a previous run.
+The first time you run `tart-executor` on a host machine, macOS shows a popup asking you to allow local network access (and, when a job attaches a disk, removable-volume access). Grant it once: you will probably need to cancel the in-flight job and check GitHub settings to make sure there are no leftover runners, then restart `tart-executor` and rerun the job. On startup `tart-executor` automatically removes leftover temporary VMs (named `tart-executor-*`) from a previous run.
+
+Release binaries are signed with a stable Developer ID (`com.BluDesign.TartExecutor` / `com.BluDesign.TartRouter`, team `B88BRQ88KH`) and notarized by Apple, so this grant is tied to a code-signing identity that stays constant across releases. You only need to allow local network / removable storage access **once** — the permission now persists through `brew upgrade` instead of being requested again on every update.
 
 ## 🔌 Management & Debugging API
 

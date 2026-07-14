@@ -1,0 +1,121 @@
+opt_out_usage
+fastlane_version '2.220.0'
+
+default_platform :mac
+
+# --- Developer ID signing configuration -----------------------------------
+# Keep these values STABLE across every release. macOS ties the Local Network /
+# removable-volume privacy (TCC) grant to the code-signing designated
+# requirement (identifier + team + certificate); changing any of them makes the
+# permission prompt reappear after a `brew upgrade`.
+DEVELOPER_ID = 'Developer ID Application: BluDesign, LLC (B88BRQ88KH)'.freeze
+DEVELOPER_ID_MATCH_APP_IDENTIFIER = 'com.BluDesign.TartRouter'.freeze
+
+# Release binary (in builds/) => its stable code-signing identifier (bundle ID).
+BINARIES = {
+  'tart-executor' => 'com.BluDesign.TartExecutor',
+  'tart-router' => 'com.BluDesign.TartRouter'
+}.freeze
+
+platform :mac do
+  # --- Keychain helpers (self-hosted CI runner) ---------------------------
+
+  private_lane :unlock_login_keychain do
+    if ENV['KEYCHAIN_PATH']
+      unlock_keychain(
+        path: ENV['KEYCHAIN_PATH'].to_s,
+        password: ENV['KEYCHAIN_PASSWORD'].to_s
+      )
+    end
+  end
+
+  desc 'Creates the CI signing keychain (no-op off CI)'
+  lane :create_profile_keychain do
+    if ENV['KEYCHAIN_NAME']
+      create_keychain(
+        name: ENV['KEYCHAIN_NAME'].to_s,
+        password: ENV['KEYCHAIN_PASSWORD'].to_s,
+        unlock: true,
+        timeout: 0
+      )
+    end
+  end
+
+  # --- App Store Connect API key ------------------------------------------
+
+  private_lane :connect_api_key do
+    if ENV['CONNECT_API_KEY_ID']
+      app_store_connect_api_key(
+        key_id: ENV['CONNECT_API_KEY_ID'].to_s,
+        issuer_id: ENV['CONNECT_API_ISSUER_ID'].to_s,
+        key_content: ENV['CONNECT_API_KEY'].to_s,
+        in_house: false
+      )
+    end
+  end
+
+  # --- Developer ID certificate -------------------------------------------
+
+  desc 'Installs the Developer ID Application certificate via match (pass readonly:true on CI)'
+  lane :certificates do |options|
+    unlock_login_keychain
+    connect_api_key
+    match_options = {
+      type: 'developer_id',
+      platform: 'macos',
+      readonly: options.fetch(:readonly, true),
+      app_identifier: DEVELOPER_ID_MATCH_APP_IDENTIFIER,
+      # Bare CLI tools embed no provisioning profile; only the cert + key matter.
+      skip_provisioning_profiles: true,
+      api_key: lane_context[SharedValues::APP_STORE_CONNECT_API_KEY]
+    }
+    # On CI, import into the dedicated runner keychain; locally use the default.
+    if ENV['KEYCHAIN_NAME']
+      match_options[:keychain_name] = ENV['KEYCHAIN_NAME'].to_s
+      match_options[:keychain_password] = ENV['KEYCHAIN_PASSWORD'].to_s
+    end
+    match(match_options)
+  end
+
+  # --- Signing & notarization ---------------------------------------------
+
+  desc 'Signs and verifies the release binaries in builds/ with the Developer ID identity'
+  lane :sign do
+    unlock_login_keychain
+    BINARIES.each do |name, identifier|
+      binary = "builds/#{name}"
+      # --options runtime = hardened runtime, --timestamp = secure timestamp
+      # (both required for notarization); --identifier pins the stable bundle ID.
+      sh("cd .. && codesign --force --timestamp --options runtime " \
+         "--identifier '#{identifier}' --sign '#{DEVELOPER_ID}' '#{binary}'")
+      sh("cd .. && codesign --verify --strict --verbose=2 '#{binary}'")
+      sh("cd .. && codesign --display --verbose=4 '#{binary}' 2>&1 | " \
+         "grep -E 'Identifier|TeamIdentifier|Authority|flags' || true")
+    end
+  end
+
+  desc 'Notarizes the zipped release binaries (builds/*.zip) with notarytool'
+  lane :notarize_binaries do
+    unless ENV['CONNECT_API_KEY'] && ENV['CONNECT_API_KEY_ID'] && ENV['CONNECT_API_ISSUER_ID']
+      UI.user_error!('CONNECT_API_KEY / CONNECT_API_KEY_ID / CONNECT_API_ISSUER_ID must be set to notarize')
+    end
+
+    # notarytool wants the App Store Connect key as a file; write it under the
+    # git-ignored builds/ dir and remove it once every submission has finished.
+    key_path = 'builds/asc_api_key.p8'
+    File.write("../#{key_path}", ENV['CONNECT_API_KEY'].to_s)
+    begin
+      BINARIES.each_key do |name|
+        # Bare Mach-O binaries can't be stapled, so we submit and --wait; the
+        # notarization ticket is served online, fine for these networked hosts.
+        sh("cd .. && xcrun notarytool submit 'builds/#{name}.zip' " \
+           "--key '#{key_path}' " \
+           "--key-id '#{ENV['CONNECT_API_KEY_ID']}' " \
+           "--issuer '#{ENV['CONNECT_API_ISSUER_ID']}' " \
+           '--wait')
+      end
+    ensure
+      File.delete("../#{key_path}") if File.exist?("../#{key_path}")
+    end
+  end
+end

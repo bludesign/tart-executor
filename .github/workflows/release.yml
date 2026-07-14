@@ -107,6 +107,31 @@ jobs:
       - name: Set up homebrew
         id: set-up-homebrew
         uses: Homebrew/actions/setup-homebrew@master
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+      - name: Import secrets
+        uses: hashicorp/vault-action@v2
+        with:
+          url: https://vault.fwd10.com
+          method: token
+          token: ${{ secrets.VAULT_TOKEN }}
+          secrets: |
+            store/general connect-api-key | CONNECT_API_KEY ;
+            store/general connect-api-key-id | CONNECT_API_KEY_ID ;
+            store/general connect-issuer-id | CONNECT_API_ISSUER_ID ;
+            store/general certificates-git | CERTIFICATES_GIT ;
+            store/general certificates-git | MATCH_GIT_URL ;
+            store/general github-key | MATCH_GIT_PRIVATE_KEY ;
+            store/general match-password | MATCH_PASSWORD ;
+            store/keychain/github-runner name | KEYCHAIN_NAME ;
+            store/keychain/github-runner path | KEYCHAIN_PATH ;
+            store/keychain/github-runner password | KEYCHAIN_PASSWORD ;
+      - name: Create signing keychain
+        run: bundle exec fastlane create_profile_keychain
+      - name: Install Developer ID certificate
+        run: bundle exec fastlane certificates readonly:true
       - name: Run swift build
         run: swift build -c release
       - name: Create builds directory
@@ -115,10 +140,14 @@ jobs:
         run: |
           cp .build/release/tart-executor builds/
           cp .build/release/tart-router builds/
+      - name: Sign executables
+        run: bundle exec fastlane sign
       - name: Zip tart-executor
         run: zip -j builds/tart-executor.zip builds/tart-executor
       - name: Zip tart-router
         run: zip -j builds/tart-router.zip builds/tart-router
+      - name: Notarize executables
+        run: bundle exec fastlane notarize_binaries
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
