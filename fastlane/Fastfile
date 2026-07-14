@@ -68,8 +68,8 @@ platform :mac do
   private_lane :connect_api_key do
     if ENV['CONNECT_API_KEY_ID']
       app_store_connect_api_key(
-        key_id: ENV['CONNECT_API_KEY_ID'].to_s.strip,
-        issuer_id: ENV['CONNECT_API_ISSUER_ID'].to_s.strip,
+        key_id: ENV['CONNECT_API_KEY_ID'].to_s,
+        issuer_id: ENV['CONNECT_API_ISSUER_ID'].to_s,
         key_content: asc_api_key_pem(ENV['CONNECT_API_KEY']),
         in_house: false
       )
@@ -118,18 +118,8 @@ platform :mac do
 
   desc 'Notarizes the zipped release binaries (builds/*.zip) with notarytool'
   lane :notarize_binaries do
-    # Trim the same way as the key: Vault-stored secrets often carry a trailing
-    # newline, and a stray character here becomes part of the JWT kid/iss, which
-    # Apple rejects with "401 Unauthenticated".
-    key_id = ENV['CONNECT_API_KEY_ID'].to_s.strip
-    issuer = ENV['CONNECT_API_ISSUER_ID'].to_s.strip
-    if ENV['CONNECT_API_KEY'].to_s.strip.empty? || key_id.empty? || issuer.empty?
+    unless ENV['CONNECT_API_KEY'] && ENV['CONNECT_API_KEY_ID'] && ENV['CONNECT_API_ISSUER_ID']
       UI.user_error!('CONNECT_API_KEY / CONNECT_API_KEY_ID / CONNECT_API_ISSUER_ID must be set to notarize')
-    end
-    # Key IDs and issuer UUIDs never contain whitespace; if any survives the
-    # strip the secret is mangled beyond a trailing newline, so fail clearly.
-    if key_id =~ /\s/ || issuer =~ /\s/
-      UI.user_error!('CONNECT_API_KEY_ID / CONNECT_API_ISSUER_ID contain internal whitespace — check the Vault secrets for stray newlines')
     end
 
     # notarytool wants the App Store Connect key as a file; write it under the
@@ -142,8 +132,8 @@ platform :mac do
         # notarization ticket is served online, fine for these networked hosts.
         sh("cd .. && xcrun notarytool submit 'builds/#{name}.zip' " \
            "--key '#{key_path}' " \
-           "--key-id '#{key_id}' " \
-           "--issuer '#{issuer}' " \
+           "--key-id '#{ENV['CONNECT_API_KEY_ID']}' " \
+           "--issuer '#{ENV['CONNECT_API_ISSUER_ID']}' " \
            '--wait')
       end
     ensure
