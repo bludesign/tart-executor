@@ -3,6 +3,14 @@ import LoggingDomain
 import TartCommon
 
 actor RouterJobHandler {
+    struct StatusCounts {
+        let pendingJobs: Int
+        let pendingJobsUnsent: Int
+        let pendingJobsQueued: Int
+        let availableVirtualMachines: Int
+        let availableHosts: Int
+    }
+
     private enum JobError: Error {
         case errorSending
     }
@@ -169,8 +177,14 @@ actor RouterJobHandler {
         hostsSnapshot().first { $0.hostname == hostname }
     }
 
-    func statusCounts() -> (pendingJobs: Int, pendingJobsUnsent: Int, pendingJobsQueued: Int, availableVirtualMachines: Int, availableHosts: Int) {
-        (pendingJobs, pendingJobsUnsent, pendingJobsQueued, availableVirtualMachines, availableHosts)
+    func statusCounts() -> StatusCounts {
+        StatusCounts(
+            pendingJobs: pendingJobs,
+            pendingJobsUnsent: pendingJobsUnsent,
+            pendingJobsQueued: pendingJobsQueued,
+            availableVirtualMachines: availableVirtualMachines,
+            availableHosts: availableHosts
+        )
     }
 
     /// Removes a job from the router queue and, if it was already dispatched, cancels it on the
