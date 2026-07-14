@@ -16,5 +16,5 @@ jobs:
         run: |
           ./scripts/generate-openapi-spec.sh
           git diff --exit-code -- Packages/*/Sources/*/Internal/OpenAPISpec.swift
-      - name: Run swiftlint
-        uses: norio-nomura/action-swiftlint@3.2.1
+      - name: Run SwiftLint
+        run: swiftlint --quiet --reporter github-actions-logging

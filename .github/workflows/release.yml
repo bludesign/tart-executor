@@ -4,17 +4,106 @@ on:
   push:
     tags:
       - "v*.*.*"
+  pull_request:
+    branches:
+      - main
+    types:
+      - closed
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to release
+        required: true
+        type: string
 
 jobs:
+  tag:
+    if: github.event_name == 'pull_request' && github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Checkout merged code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+      - name: Create next patch tag
+        id: tag
+        env:
+          TARGET_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          for attempt in {1..5}; do
+            git fetch --force --tags origin
+            latest_tag="$(git tag --list 'v*.*.*' --sort=-version:refname \
+              | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+              | head -n 1 || true)"
+
+            if [[ ! "$latest_tag" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+              echo "No semantic version tag matching vMAJOR.MINOR.PATCH was found" >&2
+              exit 1
+            fi
+
+            tag="v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((BASH_REMATCH[3] + 1))"
+            git tag --annotate "$tag" --message "$tag" "$TARGET_SHA"
+
+            if git push origin "refs/tags/$tag"; then
+              echo "tag=$tag" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            git tag --delete "$tag"
+            echo "Tag $tag was created concurrently; retrying ($attempt/5)" >&2
+          done
+
+          echo "Unable to create a unique patch tag after 5 attempts" >&2
+          exit 1
+
   build:
+    needs:
+      - tag
+    if: >-
+      always() &&
+      (github.event_name == 'push' ||
+       github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'pull_request' && github.event.pull_request.merged == true)) &&
+      (needs.tag.result == 'success' || needs.tag.result == 'skipped')
     runs-on: [tartelet, "10.0.2.54:5000/tart/macos-tahoe-xcode:v26.0.1", "memory:24576", "cpu:6"]
+    permissions:
+      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
         with:
           fetch-tags: true
           fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && needs.tag.outputs.tag || (github.event_name == 'workflow_dispatch' && inputs.tag || github.ref) }}
+      - name: Resolve release tag
+        id: release
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MERGE_TAG: ${{ needs.tag.outputs.tag }}
+          MANUAL_TAG: ${{ inputs.tag }}
+        run: |
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            tag="$MERGE_TAG"
+          elif [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            tag="$MANUAL_TAG"
+          else
+            tag="$GITHUB_REF_NAME"
+          fi
+
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tag must match vMAJOR.MINOR.PATCH: $tag" >&2
+            exit 1
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - name: Set up homebrew
         id: set-up-homebrew
         uses: Homebrew/actions/setup-homebrew@master
@@ -33,6 +122,7 @@ jobs:
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.release.outputs.tag }}
           files: |
             builds/tart-executor.zip
             builds/tart-router.zip
@@ -40,7 +130,7 @@ jobs:
         uses: mislav/bump-homebrew-formula-action@v3
         with:
           formula-name: tart-executor
-          download-url: https://github.com/bludesign/tart-executor/releases/download/${{ github.ref_name }}/tart-executor.zip
+          download-url: https://github.com/bludesign/tart-executor/releases/download/${{ steps.release.outputs.tag }}/tart-executor.zip
           homebrew-tap: bludesign/homebrew-tart
           create-pullrequest: false
           create-branch: false
@@ -50,7 +140,7 @@ jobs:
         uses: mislav/bump-homebrew-formula-action@v3
         with:
           formula-name: tart-router
-          download-url: https://github.com/bludesign/tart-executor/releases/download/${{ github.ref_name }}/tart-router.zip
+          download-url: https://github.com/bludesign/tart-executor/releases/download/${{ steps.release.outputs.tag }}/tart-router.zip
           homebrew-tap: bludesign/homebrew-tart
           create-pullrequest: false
           create-branch: false
