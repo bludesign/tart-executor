@@ -13,7 +13,7 @@ jobs:
   copilot-setup-steps:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name
     timeout-minutes: 59
-    runs-on: arc-runner-set
+    runs-on: [tartelet, "10.0.2.54:5000/tart/macos-tahoe-xcode:v26.6", "memory:4096", "cpu:2"]
 
     permissions:
       contents: read

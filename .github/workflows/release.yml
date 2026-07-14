@@ -19,7 +19,7 @@ on:
 jobs:
   tag:
     if: github.event_name == 'pull_request' && github.event.pull_request.merged == true
-    runs-on: ubuntu-latest
+    runs-on: [tartelet, "10.0.2.54:5000/tart/macos-tahoe-xcode:v26.6", "memory:4096", "cpu:2"]
     permissions:
       contents: write
     outputs:
@@ -73,7 +73,7 @@ jobs:
        github.event_name == 'workflow_dispatch' ||
        (github.event_name == 'pull_request' && github.event.pull_request.merged == true)) &&
       (needs.tag.result == 'success' || needs.tag.result == 'skipped')
-    runs-on: [tartelet, "10.0.2.54:5000/tart/macos-tahoe-xcode:v26.0.1", "memory:24576", "cpu:6"]
+    runs-on: [tartelet, "10.0.2.54:5000/tart/macos-tahoe-xcode:v26.6", "memory:4096", "cpu:2"]
     permissions:
       contents: write
     steps:
