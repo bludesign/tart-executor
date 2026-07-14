@@ -38,8 +38,8 @@ let package = Package(
             .product(name: "ShellData", package: "Shell"),
             .product(name: "SSHData", package: "SSH"),
             .product(name: "FlyingFox", package: "FlyingFox")
-        ], resources: [
-            .copy("Resources/openapi.yaml")
+        ], exclude: [
+            "Resources/openapi.yaml"
         ])
     ]
 )

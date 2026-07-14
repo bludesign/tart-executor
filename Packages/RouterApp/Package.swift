@@ -24,8 +24,8 @@ let package = Package(
             .product(name: "LoggingDomain", package: "Logging"),
             .product(name: "EnvironmentSettings", package: "EnvironmentSettings"),
             .product(name: "FlyingFox", package: "FlyingFox")
-        ], resources: [
-            .copy("Resources/openapi.yaml")
+        ], exclude: [
+            "Resources/openapi.yaml"
         ])
     ]
 )

@@ -188,11 +188,7 @@ extension ExecutorServer {
         // MARK: OpenAPI spec & docs
 
         await server.appendRoute("GET /api/v1/openapi.yaml") { _ in
-            guard let url = Bundle.module.url(forResource: "openapi", withExtension: "yaml"),
-                  let data = try? Data(contentsOf: url) else {
-                return APIDocs.specNotFound()
-            }
-            return APIDocs.yamlResponse(data)
+            APIDocs.yamlResponse(Data(OpenAPISpec.yaml.utf8))
         }
 
         await server.appendRoute("GET /api/v1/docs") { _ in
