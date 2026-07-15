@@ -11,12 +11,12 @@ public enum ProcessShellError: LocalizedError {
 
    public var errorDescription: String? {
        switch self {
-       case .unexpectedTerminationStatus(
-           let terminationStatus,
-           let executablePath,
-           let arguments,
-           let environment,
-           let result
+       case let .unexpectedTerminationStatus(
+           terminationStatus,
+           executablePath,
+           arguments,
+           environment,
+           result
        ):
             "Unexpected termination status: \(terminationStatus), Executable: \(executablePath), Arguments: \(arguments.joined(separator: " ")), Environment: \(environment.map { "\($0.key)=\($0.value)" }.joined(separator: ", ")), Result: \(result)"
        }
