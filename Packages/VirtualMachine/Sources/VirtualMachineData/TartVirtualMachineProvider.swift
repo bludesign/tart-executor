@@ -62,6 +62,14 @@ extension TartVirtualMachineProvider: VirtualMachineProvider {
         try await tart.list()
     }
 
+    public func listVirtualMachineDetails() async throws -> [VirtualMachineListItem] {
+        try await tart.listDetailed()
+    }
+
+    public func hostDiskUsage() -> TartDiskUsage? {
+        tart.hostDiskUsage()
+    }
+
     public func deleteVirtualMachine(name: String) async throws {
         try await tart.delete(name: name)
     }

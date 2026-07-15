@@ -30,7 +30,7 @@ generate() {
 
     {
         printf '// Generated from %s by scripts/generate-openapi-spec.sh. Do not edit by hand.\n' "${yaml#"${repo_root}"/}"
-        printf '// swiftlint:disable all\n'
+        printf '// swiftlint:disable:next type_body_length\n'
         printf 'enum OpenAPISpec {\n'
         printf '    static let yaml = %s"""\n' "$hashes"
         # awk '{print}' emits the file verbatim at column 0 with exactly one trailing newline,

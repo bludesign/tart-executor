@@ -1,5 +1,5 @@
 // Generated from Packages/ExecutorApp/Sources/ExecutorApp/Resources/openapi.yaml by scripts/generate-openapi-spec.sh. Do not edit by hand.
-// swiftlint:disable all
+// swiftlint:disable:next type_body_length
 enum OpenAPISpec {
     static let yaml = #"""
 openapi: 3.1.0
@@ -8,7 +8,6 @@ info:
   description: >-
     Management & debugging API for a tart-executor instance. Exposes job introspection and
     control, Tart virtual-machine and image management, effective settings, and health.
-
 
     When an `apiToken` is configured in `~/tart-executor.yaml`, every `/api/v1/*` endpoint
     except `/health`, `/openapi.yaml`, and `/docs` requires an
@@ -290,6 +289,15 @@ components:
         cpuUsed: { type: integer }
         totalMemory: { type: integer }
         memoryUsed: { type: integer }
+        diskTotalBytes:
+          type: [integer, "null"]
+          description: Total capacity of the volume backing the Tart home directory, in bytes.
+        diskFreeBytes:
+          type: [integer, "null"]
+          description: Available capacity of the Tart home volume, in bytes.
+        diskUsedBytes:
+          type: [integer, "null"]
+          description: Used capacity of the Tart home volume, in bytes.
     ExecutorSettingsResponse:
       type: object
       required: [hostname, numberOfMachines, runnerLabels, webhookPort, isHeadless, isInsecure,
@@ -348,6 +356,19 @@ components:
         ipAddress: { type: [string, "null"] }
         jobId: { type: [integer, "null"] }
         managedByExecutor: { type: boolean }
+        state:
+          type: [string, "null"]
+          description: Lifecycle state reported by Tart, e.g. running, stopped, suspended.
+        running: { type: [boolean, "null"] }
+        sizeGB:
+          type: [number, "null"]
+          description: Actual on-disk usage in gigabytes.
+        diskGB:
+          type: [number, "null"]
+          description: Provisioned disk size in gigabytes.
+        source:
+          type: [string, "null"]
+          description: Origin as reported by Tart, e.g. local.
     VirtualMachineListResponse:
       type: object
       required: [virtualMachines]

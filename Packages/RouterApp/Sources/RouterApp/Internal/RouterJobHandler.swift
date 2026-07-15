@@ -23,7 +23,7 @@ actor RouterJobHandler {
         static let lostJobRequeueInterval: TimeInterval = 15
     }
 
-    private nonisolated let logger: Logger
+    nonisolated private let logger: Logger
     private let decoder = JSONDecoder()
     private var jobs = [Int: RouterPendingJob]()
     private var hosts: [TartHost]

@@ -18,9 +18,9 @@ actor ExecutorJobHandler {
     private var activeJobs = [UUID: ActiveJob]()
     private var inProgressJobs = [Int: ExecutorPendingJob]()
     private var pendingJobs = [Int: ExecutorPendingJob]()
-    private nonisolated let routerUrl: String?
-    private nonisolated let virtualMachineProvider: VirtualMachineProvider
-    private nonisolated let logger: Logger
+    nonisolated private let routerUrl: String?
+    nonisolated private let virtualMachineProvider: VirtualMachineProvider
+    nonisolated private let logger: Logger
 
     var jobStatus: JobStatus {
         .init(

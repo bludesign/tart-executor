@@ -27,7 +27,7 @@ public final class EndpointLogger: LoggingDomain.Logger {
         configuration.timeoutIntervalForRequest = 5.0
         configuration.timeoutIntervalForResource = 10.0
         self.session = URLSession(configuration: configuration)
-    
+
         dateFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
         dateFormatter.locale = Locale(identifier: "en_US_POSIX")
         dateFormatter.timeZone = TimeZone(secondsFromGMT: 0)

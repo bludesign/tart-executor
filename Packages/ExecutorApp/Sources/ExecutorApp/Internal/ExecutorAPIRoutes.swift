@@ -1,6 +1,7 @@
 import FlyingFox
 import Foundation
 import TartCommon
+import VirtualMachineDomain
 
 extension ExecutorServer {
     /// Registers the `/api/v1/*` management & debugging routes on the shared HTTP server.
@@ -25,6 +26,7 @@ extension ExecutorServer {
             guard let self else { return .init(statusCode: .badGateway) }
             if let denied = authorizationFailure(for: request) { return denied }
             let jobStatus = await jobHandler.jobStatus
+            let disk = virtualMachineProvider.hostDiskUsage()
             let response = ExecutorStatusResponse(
                 hostname: settings.hostname,
                 inProgressJobs: jobStatus.inProgressJobs,
@@ -35,7 +37,10 @@ extension ExecutorServer {
                 cpuLimit: settings.cpuLimit,
                 cpuUsed: jobStatus.cpuUsed,
                 totalMemory: settings.totalMemory,
-                memoryUsed: jobStatus.memoryUsed
+                memoryUsed: jobStatus.memoryUsed,
+                diskTotalBytes: disk?.totalBytes,
+                diskFreeBytes: disk?.freeBytes,
+                diskUsedBytes: disk?.usedBytes
             )
             return .json(response, encoder: apiEncoder)
         }
@@ -128,8 +133,8 @@ extension ExecutorServer {
             guard let self else { return .init(statusCode: .badGateway) }
             if let denied = authorizationFailure(for: request) { return denied }
             do {
-                let names = try await virtualMachineProvider.listVirtualMachines()
-                let vms = names.map { self.virtualMachineDTO(name: $0, ipAddress: nil) }
+                let items = try await virtualMachineProvider.listVirtualMachineDetails()
+                let vms = items.map { self.virtualMachineDTO(from: $0, ipAddress: nil) }
                 return .json(VirtualMachineListResponse(virtualMachines: vms), encoder: apiEncoder)
             } catch {
                 return .jsonError("Failed to list virtual machines", statusCode: .init(500, phrase: "Internal Server Error"))
@@ -142,12 +147,12 @@ extension ExecutorServer {
             guard let name = request.routeParameters["name"] else {
                 return .jsonError("Invalid virtual machine name", statusCode: .badRequest)
             }
-            let names = (try? await virtualMachineProvider.listVirtualMachines()) ?? []
-            guard names.contains(name) else {
+            let items = (try? await virtualMachineProvider.listVirtualMachineDetails()) ?? []
+            guard let item = items.first(where: { $0.name == name }) else {
                 return .jsonError("Virtual machine not found", statusCode: .notFound)
             }
             let ipAddress = try? await virtualMachineProvider.ipAddress(ofVirtualMachineNamed: name)
-            return .json(virtualMachineDTO(name: name, ipAddress: ipAddress), encoder: apiEncoder)
+            return .json(virtualMachineDTO(from: item, ipAddress: ipAddress), encoder: apiEncoder)
         }
 
         await server.appendRoute("DELETE /api/v1/vms/:name") { [weak self] request in
@@ -205,15 +210,31 @@ extension ExecutorServer {
         return nil
     }
 
-    /// Builds a `VirtualMachineDTO`, deriving the owning job id for executor-managed VMs whose
-    /// name follows the `tart-executor-<jobId>-<uuid>` convention.
-    func virtualMachineDTO(name: String, ipAddress: String?) -> VirtualMachineDTO {
+    /// Builds a `VirtualMachineDTO` from a Tart listing item, deriving the owning job id for
+    /// executor-managed VMs whose name follows the `tart-executor-<jobId>-<uuid>` convention and
+    /// carrying through the state/size/source detail from `tart list --format json`.
+    func virtualMachineDTO(from item: VirtualMachineListItem, ipAddress: String?) -> VirtualMachineDTO {
         let prefix = ExecutorConstants.virtualMachineNamePrefix
-        guard name.hasPrefix(prefix) else {
-            return VirtualMachineDTO(name: name, ipAddress: ipAddress, jobId: nil, managedByExecutor: false)
+        let jobId: Int?
+        let managedByExecutor: Bool
+        if item.name.hasPrefix(prefix) {
+            let remainder = item.name.dropFirst(prefix.count)
+            jobId = Int(remainder.prefix { $0 != "-" })
+            managedByExecutor = true
+        } else {
+            jobId = nil
+            managedByExecutor = false
         }
-        let remainder = name.dropFirst(prefix.count)
-        let jobIdText = remainder.prefix { $0 != "-" }
-        return VirtualMachineDTO(name: name, ipAddress: ipAddress, jobId: Int(jobIdText), managedByExecutor: true)
+        return VirtualMachineDTO(
+            name: item.name,
+            ipAddress: ipAddress,
+            jobId: jobId,
+            managedByExecutor: managedByExecutor,
+            state: item.state,
+            running: item.running,
+            sizeGB: item.sizeGB,
+            diskGB: item.diskGB,
+            source: item.source
+        )
     }
 }

@@ -1,5 +1,5 @@
 // Generated from Packages/RouterApp/Sources/RouterApp/Resources/openapi.yaml by scripts/generate-openapi-spec.sh. Do not edit by hand.
-// swiftlint:disable all
+// swiftlint:disable:next type_body_length
 enum OpenAPISpec {
     static let yaml = #"""
 openapi: 3.1.0
