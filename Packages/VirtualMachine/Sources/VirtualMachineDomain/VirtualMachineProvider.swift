@@ -14,6 +14,11 @@ public protocol VirtualMachineProvider: AnyObject {
     func removeVirtualMachines(namePrefix: String) async throws -> [String]
     /// Lists the names of all local Tart virtual machines / images.
     func listVirtualMachines() async throws -> [String]
+    /// Lists all local Tart virtual machines / images with the detail exposed by `tart list`
+    /// (state, size, source), falling back to name-only items when that detail is unavailable.
+    func listVirtualMachineDetails() async throws -> [VirtualMachineListItem]
+    /// Capacity of the volume backing the Tart home directory, or `nil` if it can't be determined.
+    func hostDiskUsage() -> TartDiskUsage?
     /// Deletes a single virtual machine by name.
     func deleteVirtualMachine(name: String) async throws
     /// Pulls an image into the local Tart store.

@@ -1,4 +1,6 @@
+import Foundation
 import ShellDomain
+import VirtualMachineDomain
 
 public final class Tart {
     private let homeProvider: TartHomeProvider
@@ -62,6 +64,37 @@ public final class Tart {
         return result.split(separator: "\n").map(String.init)
     }
 
+    /// Lists local VMs/images with state/size/source via `tart list --format json`. Falls back to
+    /// the names-only listing when this Tart build doesn't support JSON output or returns something
+    /// we can't decode, so the caller always gets at least the machine names.
+    public func listDetailed() async throws -> [VirtualMachineListItem] {
+        let json: String
+        do {
+            json = try await executeCommand(withArguments: ["list", "--format", "json", "--source", "local"])
+        } catch {
+            return try await list().map { VirtualMachineListItem(name: $0) }
+        }
+        guard let data = json.data(using: .utf8), !data.isEmpty,
+              let rows = try? JSONDecoder().decode([TartListRow].self, from: data) else {
+            return try await list().map { VirtualMachineListItem(name: $0) }
+        }
+        return rows.map(\.asListItem)
+    }
+
+    /// Capacity of the volume backing the Tart home directory (or the user's home volume when no
+    /// `TART_HOME` override is configured). Returns `nil` if the volume can't be inspected.
+    public func hostDiskUsage() -> TartDiskUsage? {
+        let url = homeProvider.homeFolderUrl ?? FileManager.default.homeDirectoryForCurrentUser
+        guard let values = try? url.resourceValues(forKeys: [
+            .volumeTotalCapacityKey,
+            .volumeAvailableCapacityForImportantUsageKey
+        ]), let total = values.volumeTotalCapacity else {
+            return nil
+        }
+        let free = values.volumeAvailableCapacityForImportantUsage ?? 0
+        return TartDiskUsage(totalBytes: Int64(total), freeBytes: free)
+    }
+
     public func getIPAddress(ofVirtualMachineNamed name: String, shouldUseArpResolver: Bool) async throws -> String {
         let arguments: [String]
         if shouldUseArpResolver {
@@ -71,6 +104,45 @@ public final class Tart {
         }
         let result = try await executeCommand(withArguments: arguments)
         return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+/// One row of `tart list --format json`. Keys are Tart's capitalised column names; numbers are
+/// decoded leniently as `Double` since Tart reports whole-gigabyte integers.
+private struct TartListRow: Decodable {
+    let name: String
+    let source: String?
+    let state: String?
+    let running: Bool?
+    let size: Double?
+    let disk: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case name = "Name"
+        case source = "Source"
+        case state = "State"
+        case running = "Running"
+        case size = "Size"
+        case disk = "Disk"
+    }
+
+    var asListItem: VirtualMachineListItem {
+        let isRunning: Bool?
+        if let running {
+            isRunning = running
+        } else if let state {
+            isRunning = state.lowercased() == "running"
+        } else {
+            isRunning = nil
+        }
+        return VirtualMachineListItem(
+            name: name,
+            source: source,
+            state: state,
+            running: isRunning,
+            sizeGB: size,
+            diskGB: disk
+        )
     }
 }
 

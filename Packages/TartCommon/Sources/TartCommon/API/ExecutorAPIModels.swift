@@ -76,6 +76,12 @@ public struct ExecutorStatusResponse: Codable {
     public let cpuUsed: Int
     public let totalMemory: Int
     public let memoryUsed: Int
+    /// Total capacity of the volume backing the Tart home directory, in bytes.
+    public let diskTotalBytes: Int64?
+    /// Available capacity of the Tart home volume, in bytes.
+    public let diskFreeBytes: Int64?
+    /// Used capacity of the Tart home volume, in bytes.
+    public let diskUsedBytes: Int64?
 
     public init(
         hostname: String,
@@ -87,7 +93,10 @@ public struct ExecutorStatusResponse: Codable {
         cpuLimit: Int,
         cpuUsed: Int,
         totalMemory: Int,
-        memoryUsed: Int
+        memoryUsed: Int,
+        diskTotalBytes: Int64? = nil,
+        diskFreeBytes: Int64? = nil,
+        diskUsedBytes: Int64? = nil
     ) {
         self.hostname = hostname
         self.inProgressJobs = inProgressJobs
@@ -99,21 +108,50 @@ public struct ExecutorStatusResponse: Codable {
         self.cpuUsed = cpuUsed
         self.totalMemory = totalMemory
         self.memoryUsed = memoryUsed
+        self.diskTotalBytes = diskTotalBytes
+        self.diskFreeBytes = diskFreeBytes
+        self.diskUsedBytes = diskUsedBytes
     }
 }
 
-/// A Tart virtual machine / local image as seen by `tart list`.
+/// A Tart virtual machine / local image as seen by `tart list`. The fields after
+/// `managedByExecutor` come from `tart list --format json` and are absent on older Tart builds.
 public struct VirtualMachineDTO: Codable {
     public let name: String
     public let ipAddress: String?
     public let jobId: Int?
     public let managedByExecutor: Bool
+    /// Lifecycle state reported by Tart, e.g. `running`, `stopped`, `suspended`.
+    public let state: String?
+    /// Whether the machine is currently running.
+    public let running: Bool?
+    /// Actual on-disk usage in gigabytes.
+    public let sizeGB: Double?
+    /// Provisioned disk size in gigabytes.
+    public let diskGB: Double?
+    /// Origin as reported by Tart, e.g. `local`.
+    public let source: String?
 
-    public init(name: String, ipAddress: String?, jobId: Int?, managedByExecutor: Bool) {
+    public init(
+        name: String,
+        ipAddress: String?,
+        jobId: Int?,
+        managedByExecutor: Bool,
+        state: String? = nil,
+        running: Bool? = nil,
+        sizeGB: Double? = nil,
+        diskGB: Double? = nil,
+        source: String? = nil
+    ) {
         self.name = name
         self.ipAddress = ipAddress
         self.jobId = jobId
         self.managedByExecutor = managedByExecutor
+        self.state = state
+        self.running = running
+        self.sizeGB = sizeGB
+        self.diskGB = diskGB
+        self.source = source
     }
 }
 
