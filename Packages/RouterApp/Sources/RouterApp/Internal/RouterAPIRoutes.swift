@@ -103,6 +103,79 @@ extension RouterServer {
             }
         }
 
+        // Two path segments, so this never collides with `POST /api/v1/jobs/:id/cancel`.
+        await server.appendRoute("POST /api/v1/jobs/dispatch") { [weak self] request in
+            guard let self else { return .init(statusCode: .badGateway) }
+            if let denied = authorizationFailure(for: request) { return denied }
+            let dispatchRequest: RouterDispatchRequest
+            do {
+                let bodyData = try await request.bodyData
+                dispatchRequest = try apiDecoder.decode(RouterDispatchRequest.self, from: bodyData)
+            } catch {
+                return .jsonError("Invalid request body", statusCode: .badRequest)
+            }
+            guard !dispatchRequest.labels.isEmpty else {
+                return .jsonError("labels must not be empty", statusCode: .badRequest)
+            }
+
+            let jobLabels = Set(dispatchRequest.labels)
+            let force = dispatchRequest.force ?? false
+            // Same check the webhook route applies, so dispatch and a real delivery agree on
+            // which jobs this router handles.
+            guard labels.isSubset(of: jobLabels) else {
+                let response = RouterDispatchResponse(
+                    started: false,
+                    jobId: dispatchRequest.id,
+                    forced: force,
+                    reason: .labelMismatch,
+                    message: "Job labels do not contain the router's configured labels (\(labels.sorted().joined(separator: ",")))"
+                )
+                return .json(response, statusCode: .unprocessableContent, encoder: apiEncoder)
+            }
+
+            if let host = dispatchRequest.host, !hosts.contains(where: { $0.hostname == host }) {
+                return .jsonError("Unknown host: \(host)", statusCode: .notFound)
+            }
+
+            let outcome = await jobHandler.dispatch(
+                id: dispatchRequest.id,
+                labels: jobLabels,
+                pinnedHostname: dispatchRequest.host,
+                force: force
+            )
+            switch outcome {
+            case let .sent(hostname):
+                let response = RouterDispatchResponse(
+                    started: true,
+                    jobId: dispatchRequest.id,
+                    sentToHost: hostname,
+                    forced: force
+                )
+                return .json(response, encoder: apiEncoder)
+            case let .skippedAlreadyTracked(sentToHost, action):
+                let response = RouterDispatchResponse(
+                    started: false,
+                    jobId: dispatchRequest.id,
+                    sentToHost: sentToHost,
+                    forced: force,
+                    reason: .alreadyTracked,
+                    message: "The router already tracks this job as \(action.rawValue). Pass force to place it again."
+                )
+                return .json(response, statusCode: .conflict, encoder: apiEncoder)
+            case .noHostAvailable:
+                // 200, not an error: the request was valid and the job is queued, there is just
+                // nowhere to run it right now.
+                let response = RouterDispatchResponse(
+                    started: false,
+                    jobId: dispatchRequest.id,
+                    forced: force,
+                    reason: .noHostAvailable,
+                    message: "No executor had capacity for this job. It stays queued and will be sent when one frees up."
+                )
+                return .json(response, encoder: apiEncoder)
+            }
+        }
+
         // MARK: Executors (hosts)
 
         await server.appendRoute("GET /api/v1/hosts") { [weak self] request in

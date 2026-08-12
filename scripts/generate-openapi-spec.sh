@@ -30,6 +30,8 @@ generate() {
 
     {
         printf '// Generated from %s by scripts/generate-openapi-spec.sh. Do not edit by hand.\n' "${yaml#"${repo_root}"/}"
+        # The file is one string literal whose length is the spec's; both limits are meaningless here.
+        printf '// swiftlint:disable file_length\n'
         printf '// swiftlint:disable:next type_body_length\n'
         printf 'enum OpenAPISpec {\n'
         printf '    static let yaml = %s"""\n' "$hashes"

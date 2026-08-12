@@ -1,6 +1,7 @@
 import Combine
 import FlyingFox
 import Foundation
+import GitHubDomain
 import LoggingDomain
 import TartCommon
 import VirtualMachineDomain
@@ -22,6 +23,7 @@ public protocol ExecutorServerSettings {
     var totalMemory: Int { get }
     var loggingEndpoint: String? { get }
     var apiToken: String? { get }
+    var gitHubScan: GitHubScanConfiguration { get }
 }
 
 final class ExecutorServer {
@@ -38,20 +40,37 @@ final class ExecutorServer {
     let logger: Logger
     private var executorServerTask: Task<(), any Error>?
     let jobHandler: ExecutorJobHandler
-    private var gitHubRunnerLabels: Set<String>
+    let gitHubRunnerLabels: Set<String>
+    let planner: ExecutorJobPlanner
+    /// Scans GitHub for queued jobs. `nil` when GitHub scanning is disabled or unconfigured, in
+    /// which case the `/api/v1/github/*` routes answer `503`.
+    let queuedJobsProvider: GitHubQueuedJobsProviding?
     private var cancellables = Set<AnyCancellable>()
     let settings: ExecutorServerSettings
     let virtualMachineProvider: VirtualMachineProvider
 
-    init(logger: Logger, virtualMachineProvider: VirtualMachineProvider, settings: ExecutorServerSettings) {
+    init(
+        logger: Logger,
+        virtualMachineProvider: VirtualMachineProvider,
+        settings: ExecutorServerSettings,
+        queuedJobsProvider: GitHubQueuedJobsProviding? = nil
+    ) {
         self.logger = logger
         self.settings = settings
         self.virtualMachineProvider = virtualMachineProvider
+        self.queuedJobsProvider = queuedJobsProvider
 
         let labelsArray = settings.runnerLabels.components(separatedBy: ",").map { label in
             label.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         gitHubRunnerLabels = Set<String>(labelsArray)
+        planner = ExecutorJobPlanner(
+            runnerLabels: gitHubRunnerLabels,
+            defaultCpu: settings.defaultCpu,
+            defaultMemory: settings.defaultMemory,
+            isInsecure: settings.isInsecure,
+            insecureDomains: settings.insecureDomains
+        )
         jobHandler = .init(
             routerUrl: settings.routerUrl,
             virtualMachineProvider: virtualMachineProvider,
@@ -232,56 +251,5 @@ private extension ExecutorServer {
                 LogParameterKey.error: error.localizedDescription
             ])
         }
-    }
-
-    func handleWorkflowJob(_ workflowJob: WorkflowJob) async -> Bool {
-        guard gitHubRunnerLabels.isSubset(of: workflowJob.labels) else {
-            logger.error("Executor Handle Workflow Job Skipped For Labels", parameters: [
-                LogParameterKey.workflowJobId: "\(workflowJob.id)",
-                LogParameterKey.jobLabels: workflowJob.labels.joined(separator: ","),
-                LogParameterKey.tartLabels: gitHubRunnerLabels.joined(separator: ",")
-            ])
-            return false
-        }
-
-        let cpu = workflowJob.cpu ?? settings.defaultCpu
-        let memory = workflowJob.memory ?? settings.defaultMemory
-        let workflowSet = workflowJob.filteredLabels.subtracting(gitHubRunnerLabels)
-
-        guard workflowSet.count == 1, let imageName = workflowSet.first else {
-            logger.error("Executor Handle Workflow Job Skipped For Extra Labels", parameters: [
-                LogParameterKey.workflowJobId: "\(workflowJob.id)",
-                LogParameterKey.extraLabels: workflowSet.joined(separator: ","),
-                LogParameterKey.expectedCount: "1",
-                LogParameterKey.actualCount: "\(workflowSet.count)"
-            ])
-            return false
-        }
-
-        let imageInsecure = settings.insecureDomains.contains { insecureDomain in
-            imageName.contains(insecureDomain)
-        }
-
-        let isJobInsecure = settings.isInsecure || imageInsecure
-
-        logger.info("Executor Handle Workflow Job Received", parameters: [
-            LogParameterKey.workflowJobId: "\(workflowJob.id)",
-            LogParameterKey.action: workflowJob.action.rawValue,
-            LogParameterKey.imageName: imageName,
-            LogParameterKey.isInsecure: "\(isJobInsecure)",
-            LogParameterKey.cpu: cpu.map { "\($0)" } ?? "default",
-            LogParameterKey.memory: memory.map { "\($0)" } ?? "default"
-        ])
-
-        let pendingJob = ExecutorPendingJob(
-            workflowJob: workflowJob,
-            imageName: imageName,
-            netBridgedAdapter: settings.netBridgedAdapter,
-            isInsecure: isJobInsecure,
-            isHeadless: settings.isHeadless,
-            cpu: cpu,
-            memory: memory
-        )
-        return await jobHandler.handle(pendingJob: pendingJob)
     }
 }

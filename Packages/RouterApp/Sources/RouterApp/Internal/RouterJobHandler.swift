@@ -23,9 +23,11 @@ actor RouterJobHandler {
         static let lostJobRequeueInterval: TimeInterval = 15
     }
 
-    nonisolated private let logger: Logger
+    // Module-internal rather than private so `RouterJobHandler+Dispatch` can reach them; the
+    // actor itself is internal, so this widens nothing outside RouterApp.
+    nonisolated let logger: Logger
     private let decoder = JSONDecoder()
-    private var jobs = [Int: RouterPendingJob]()
+    var jobs = [Int: RouterPendingJob]()
     private var hosts: [TartHost]
     private var isUpdatingStatus = false
     private var needsAnotherUpdate = false

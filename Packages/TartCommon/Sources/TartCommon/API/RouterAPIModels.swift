@@ -29,6 +29,54 @@ public struct RouterJobsResponse: Codable {
     }
 }
 
+/// Request body for `POST /api/v1/jobs/dispatch` on the router.
+public struct RouterDispatchRequest: Codable {
+    public let id: Int
+    /// The job's GitHub labels, **verbatim**. These become the runner's `--labels`, so any
+    /// reordering, filtering, or normalisation produces a runner GitHub will not match, which
+    /// leaves the job queued while the API reports success.
+    public let labels: [String]
+    /// Restricts placement to one executor. Omit to let the router choose by priority.
+    public let host: String?
+    /// Re-places a job the router already tracks. Only safe once the caller has confirmed no
+    /// executor holds a virtual machine for this job id.
+    public let force: Bool?
+
+    public init(id: Int, labels: [String], host: String?, force: Bool?) {
+        self.id = id
+        self.labels = labels
+        self.host = host
+        self.force = force
+    }
+}
+
+/// Response for `POST /api/v1/jobs/dispatch` on the router.
+public struct RouterDispatchResponse: Codable {
+    public let started: Bool
+    public let jobId: Int
+    /// Executor the job was handed to, when one was found.
+    public let sentToHost: String?
+    public let forced: Bool
+    public let reason: DispatchSkipReason?
+    public let message: String?
+
+    public init(
+        started: Bool,
+        jobId: Int,
+        sentToHost: String? = nil,
+        forced: Bool = false,
+        reason: DispatchSkipReason? = nil,
+        message: String? = nil
+    ) {
+        self.started = started
+        self.jobId = jobId
+        self.sentToHost = sentToHost
+        self.forced = forced
+        self.reason = reason
+        self.message = message
+    }
+}
+
 /// An executor (host) as tracked by the router, including its last-polled status.
 public struct RouterHostDTO: Codable {
     public let hostname: String
