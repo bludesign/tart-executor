@@ -8,7 +8,7 @@ info:
 
     When an `apiToken` is configured in `~/tart-router.yaml`, every `/api/v1/*` endpoint except
     `/health`, `/openapi.yaml`, and `/docs` requires an `Authorization: Bearer <token>` header.
-  version: 0.24.0
+  version: 0.25.0
 servers:
   - url: /api/v1
     description: Served on the router's listen port (see `port`, e.g. 3251).
@@ -118,6 +118,48 @@ paths:
               schema: { $ref: "#/components/schemas/CancelResponse" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+  /jobs/dispatch:
+    post:
+      tags: [Jobs]
+      summary: Queue and place a job the router does not have
+      description: >-
+        Queues a GitHub Actions job the router never received a webhook for, or received and
+        lost, and places it exactly like a webhook-delivered job: by executor priority, honouring
+        each host's capacity and CPU/memory limits.
+
+
+        Unlike the webhook path, this reports when nothing could take the job
+        (`no_host_available`) instead of only logging it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RouterDispatchRequest" }
+      responses:
+        "200":
+          description: >-
+            The job was placed on an executor (`started: true`), or it was accepted and queued
+            but no executor had capacity (`started: false`, `reason: no_host_available`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RouterDispatchResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: The named host is not configured on this router.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "409":
+          description: The router already tracks this job. Pass `force` to place it again.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RouterDispatchResponse" }
+        "422":
+          description: The labels do not contain the router's configured labels.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RouterDispatchResponse" }
   /hosts:
     get:
       tags: [Hosts]
@@ -310,3 +352,49 @@ components:
       properties:
         cancelled: { type: boolean }
         cancelledCount: { type: [integer, "null"] }
+    DispatchSkipReason:
+      type: string
+      enum: [virtual_machine_exists, already_tracked, at_capacity, label_mismatch, no_host_available]
+      description: Why nothing was started.
+    RouterDispatchRequest:
+      type: object
+      required: [id, labels]
+      properties:
+        id:
+          type: integer
+          description: GitHub workflow job id.
+        labels:
+          type: array
+          minItems: 1
+          items: { type: string }
+          description: >-
+            The job's GitHub labels, **verbatim**. These become the runner's `--labels`, so
+            reordering, filtering, or otherwise normalising them registers a runner GitHub is not
+            waiting on: the machine boots, idles, and the job stays queued while this endpoint
+            reports success. Copy the array straight from the job.
+        host:
+          type: [string, "null"]
+          description: >-
+            Restricts placement to this executor. Omit to let the router choose by priority.
+        force:
+          type: [boolean, "null"]
+          description: >-
+            Re-places a job the router already tracks, clearing its host attribution. Only set
+            this once you have confirmed no executor holds a virtual machine for this job id —
+            the executors' duplicate guards are per-host and cannot see each other, so forcing a
+            job that is genuinely running elsewhere can start a second machine for it.
+    RouterDispatchResponse:
+      type: object
+      required: [started, jobId, forced]
+      properties:
+        started: { type: boolean }
+        jobId: { type: integer }
+        sentToHost:
+          type: [string, "null"]
+          description: Executor the job was handed to, or where it already was on a conflict.
+        forced: { type: boolean }
+        reason:
+          oneOf:
+            - $ref: "#/components/schemas/DispatchSkipReason"
+            - type: "null"
+        message: { type: [string, "null"] }

@@ -1,5 +1,6 @@
 import FlyingFox
 import Foundation
+import GitHubDomain
 import TartCommon
 import VirtualMachineDomain
 
@@ -125,6 +126,46 @@ extension ExecutorServer {
             if let denied = authorizationFailure(for: request) { return denied }
             await jobHandler.cancelAll()
             return .json(CancelResponse(cancelled: true), encoder: apiEncoder)
+        }
+
+        // Two path segments, so this never collides with `POST /api/v1/jobs/:id/cancel`.
+        await server.appendRoute("POST /api/v1/jobs/dispatch") { [weak self] request in
+            guard let self else { return .init(statusCode: .badGateway) }
+            if let denied = authorizationFailure(for: request) { return denied }
+            return await dispatchResponse(for: request)
+        }
+
+        // MARK: GitHub
+
+        await server.appendRoute("GET /api/v1/github/queued-jobs") { [weak self] request in
+            guard let self else { return .init(statusCode: .badGateway) }
+            if let denied = authorizationFailure(for: request) { return denied }
+            guard let queuedJobsProvider else {
+                return .jsonError("GitHub scanning is not configured", statusCode: .serviceUnavailable)
+            }
+            let snapshot: GitHubQueuedJobsSnapshot
+            do {
+                snapshot = try await queuedJobsProvider.queuedJobs(refresh: request.query["refresh"] == "true")
+            } catch {
+                // Only reached when there is no usable snapshot at all; a partial scan comes back
+                // as a 200 with warnings so a degraded scan never reads as an empty queue.
+                return .jsonError("Failed to scan GitHub: \(error.localizedDescription)", statusCode: .badGateway)
+            }
+            var jobs = snapshot.jobs.map { self.queuedJobDTO(for: $0) }
+            if request.query["matching"] != "all" {
+                jobs = jobs.filter(\.matchesRunnerLabels)
+            }
+            let response = GitHubQueuedJobsResponse(
+                hostname: settings.hostname,
+                jobs: jobs,
+                scannedAt: snapshot.scannedAt,
+                repositoriesScanned: snapshot.repositoriesScanned,
+                truncated: snapshot.truncated,
+                warnings: snapshot.warnings,
+                rateLimitRemaining: snapshot.rateLimitRemaining,
+                rateLimitResetAt: snapshot.rateLimitResetAt
+            )
+            return .json(response, encoder: apiEncoder)
         }
 
         // MARK: Virtual machines & images

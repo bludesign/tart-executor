@@ -14,13 +14,15 @@ struct ActiveJob {
 }
 
 actor ExecutorJobHandler {
-    private let numberOfMachines: Int
-    private var activeJobs = [UUID: ActiveJob]()
-    private var inProgressJobs = [Int: ExecutorPendingJob]()
-    private var pendingJobs = [Int: ExecutorPendingJob]()
+    // Module-internal rather than private so `ExecutorJobHandler+Dispatch` can reach them; the
+    // actor itself is internal, so this widens nothing outside ExecutorApp.
+    let numberOfMachines: Int
+    var activeJobs = [UUID: ActiveJob]()
+    var inProgressJobs = [Int: ExecutorPendingJob]()
+    var pendingJobs = [Int: ExecutorPendingJob]()
     nonisolated private let routerUrl: String?
     nonisolated private let virtualMachineProvider: VirtualMachineProvider
-    nonisolated private let logger: Logger
+    nonisolated let logger: Logger
 
     var jobStatus: JobStatus {
         .init(
@@ -254,7 +256,42 @@ private extension ExecutorJobHandler {
         cancelJobsByLabels(labels)
     }
 
-    func start(pendingJob: ExecutorPendingJob) {
+    func startNextPendingJob() {
+        guard activeJobs.count < numberOfMachines else { return }
+        guard let pendingJob = pendingJobs.first(where: { !$0.value.didStart })?.value else { return }
+        start(pendingJob: pendingJob)
+    }
+
+    func remove(uuid: UUID) {
+        activeJobs.removeValue(forKey: uuid)
+        startNextPendingJob()
+        Task {
+            await activeJobEnded()
+        }
+    }
+
+    func activeJobEnded() async {
+        guard let routerUrl = routerUrl.flatMap({ URL(string: $0) }) else { return }
+        var request = URLRequest(url: routerUrl.appending(path: "runner"))
+        request.httpMethod = "POST"
+        do {
+            _ = try await URLSession.shared.data(for: request)
+        } catch {
+            logger.error("Router API Call Error", error: error, [
+                LogParameterKey.routerUrl: routerUrl.absoluteString
+            ])
+        }
+    }
+}
+
+// Internal so `ExecutorJobHandler+Dispatch` can start a machine for a job the executor
+// never received a webhook for.
+extension ExecutorJobHandler {
+    /// Creates and boots a machine for the job. Returns the machine's name. The assignment to
+    /// `activeJobs` happens synchronously before returning, which is what makes the
+    /// check-then-start in `dispatch` safe.
+    @discardableResult
+    func start(pendingJob: ExecutorPendingJob) -> String {
         logger.info("Job Executor Starting", pendingJob: pendingJob)
         pendingJob.didStart = true
         let runnerLabels = pendingJob.workflowJob.labels.joined(separator: ",")
@@ -322,32 +359,6 @@ private extension ExecutorJobHandler {
             vmName: vmName,
             startedAt: Date()
         )
-    }
-
-    func startNextPendingJob() {
-        guard activeJobs.count < numberOfMachines else { return }
-        guard let pendingJob = pendingJobs.first(where: { !$0.value.didStart })?.value else { return }
-        start(pendingJob: pendingJob)
-    }
-
-    func remove(uuid: UUID) {
-        activeJobs.removeValue(forKey: uuid)
-        startNextPendingJob()
-        Task {
-            await activeJobEnded()
-        }
-    }
-
-    func activeJobEnded() async {
-        guard let routerUrl = routerUrl.flatMap({ URL(string: $0) }) else { return }
-        var request = URLRequest(url: routerUrl.appending(path: "runner"))
-        request.httpMethod = "POST"
-        do {
-            _ = try await URLSession.shared.data(for: request)
-        } catch {
-            logger.error("Router API Call Error", error: error, [
-                LogParameterKey.routerUrl: routerUrl.absoluteString
-            ])
-        }
+        return vmName
     }
 }

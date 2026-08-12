@@ -15,12 +15,14 @@ let package = Package(
         ])
     ],
     dependencies: [
+        .package(path: "../Logging"),
         .package(path: "../Networking"),
         .package(url: "https://github.com/Kitura/Swift-JWT", from: "4.0.0")
     ],
     targets: [
         .target(name: "GitHubData", dependencies: [
             "GitHubDomain",
+            .product(name: "LoggingDomain", package: "Logging"),
             .product(name: "NetworkingDomain", package: "Networking")
         ]),
         .target(name: "GitHubDomain", dependencies: [

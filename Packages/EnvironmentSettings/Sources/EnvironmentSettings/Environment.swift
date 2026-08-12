@@ -35,6 +35,7 @@ public final class Environment: TartHomeProvider,
     public let defaultMemory: Int?
     public let loggingEndpoint: String?
     public let apiToken: String?
+    public let gitHubScan: GitHubScanConfiguration
 
     public init() throws {
         let configUrl = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("tart-executor.yaml")
@@ -68,5 +69,6 @@ public final class Environment: TartHomeProvider,
         defaultMemory = environmentYaml.tart.defaultMemory
         loggingEndpoint = environmentYaml.loggingEndpoint
         apiToken = environmentYaml.apiToken
+        gitHubScan = environmentYaml.github.scan?.configuration ?? .default
     }
 }

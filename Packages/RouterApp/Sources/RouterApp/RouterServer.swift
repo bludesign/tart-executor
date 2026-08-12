@@ -123,7 +123,13 @@ public final class RouterServer {
                     ])
                     return .init(statusCode: .ok)
                 }
-                await jobHandler.handleJob(job: .init(workflowJob: workflowJob, headers: request.headers, bodyData: bodyData))
+                let job = RouterPendingJob(
+                    workflowJob: workflowJob,
+                    headers: request.headers,
+                    bodyData: bodyData,
+                    pinnedHostname: nil
+                )
+                await jobHandler.handleJob(job: job)
                 return .init(statusCode: .ok)
             } catch {
                 throw error

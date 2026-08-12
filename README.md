@@ -70,6 +70,31 @@ github:
   appId: 1234567
   # Path to private key for github app (required)
   privateKey: /Users/server/private-key.pem
+  # Scanning GitHub for jobs that are queued but have no runner (optional, on by default).
+  # Powers GET /api/v1/github/queued-jobs. Requires the GitHub App to have Actions: read.
+  scan:
+    # Set to false to disable scanning entirely; the endpoint then answers 503 (optional)
+    enabled: true
+    # How long a scan result is served before refreshing in the background (optional)
+    cacheSeconds: 30
+    # How long the repository list is reused before being re-fetched (optional)
+    repositoryCacheSeconds: 600
+    # Most repositories to visit in one scan, most-recently-pushed first (optional)
+    maxRepositories: 200
+    # Requests in flight at once. Raising this risks GitHub's secondary rate limits (optional)
+    maxConcurrentRequests: 4
+    # Workflow runs fetched per repository, newest first (optional)
+    runsPerRepository: 50
+    # Wall-clock budget for one scan in seconds (optional)
+    timeoutSeconds: 20
+    # Abort the scan when fewer than this many GitHub API requests remain (optional)
+    rateLimitFloor: 200
+    # Only scan these owner/repo names. Leave out to scan every installed repository (optional)
+    includeRepositories:
+      - bludesign/tart
+    # Never scan these owner/repo names (optional)
+    excludeRepositories:
+      - bludesign/archive
 runner:
   # Runner label to look for in Github action job labels to create VM (required)
   labels: tartelet
@@ -140,6 +165,34 @@ Run by typing `tart-router` into terminal.
 7. Select "Generate a private key". `tart-executor` will use this to send authorized requests to the API. The generated key should automatically be downloaded.
 8. Transfer the generated private key to your `tart-executor` machines and set the path in the config.
 
+#### Actions: read (required for queued-job scanning)
+
+`GET /api/v1/github/queued-jobs` additionally needs the repository permission **`Actions` (Read)**, on top of the permissions above. Metadata read is already implicit and covers the repository listing.
+
+If you are adding this to an App that already exists, GitHub treats it as a permission update: request it in the App's settings, then an organization owner has to **approve it on the installation**. Until they do, every scan is denied with `Resource not accessible by integration`, and the endpoint reports that in `warnings` (it returns `200` with an empty `jobs` array, so read the warnings rather than concluding the queue is empty).
+
+### Recovering a job that is stuck without a runner
+
+Occasionally GitHub reports a job as `queued` but no VM ever starts for it — a webhook delivery was missed, or the executor lost the job. The management API can find and fix these without any GitHub credentials of your own:
+
+```bash
+# What is GitHub waiting on? `matching=all` includes jobs this executor cannot run, each
+# annotated with matchesRunnerLabels and why.
+curl -s -H "Authorization: Bearer $TOKEN" \
+  'http://127.0.0.1:3250/api/v1/github/queued-jobs?matching=all' | jq
+```
+
+```bash
+# Start a VM for one. Pass the job's labels exactly as the scan reported them.
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"id":123456,"labels":["tartelet","ghcr.io/cirruslabs/macos-sequoia-xcode:latest"]}' \
+  http://127.0.0.1:3250/api/v1/jobs/dispatch | jq
+```
+
+Send it to the router instead (`http://127.0.0.1:3251/api/v1/jobs/dispatch`) to have it placed on whichever executor has capacity, optionally pinning one with `"host": "server-1"`.
+
+Two things to know about the labels: they are passed to the runner's `--labels` verbatim, so reordering or dropping any of them (including `cpu:`/`memory:`) registers a runner GitHub is not waiting on — the VM boots, idles, and the job stays queued. And `force` bypasses the already-tracked and capacity guards (deliberately over-committing past `numberOfVirtualMachines`), but never the guard against a VM that already exists for that job id; cancel the job first if you really want to replace its machine.
+
 
 ### Brew Service
 
@@ -182,6 +235,8 @@ Each service serves its own OpenAPI 3.1 spec and a browsable Redoc page:
 | POST | `/api/v1/jobs/{id}/cancel` | Cancel one job by id |
 | POST | `/api/v1/jobs/cancel` | Cancel by labels (body `{"labels":["..."]}`) |
 | POST | `/api/v1/jobs/cancel-all` | Cancel all active jobs |
+| POST | `/api/v1/jobs/dispatch` | Start a VM for a job (body `{"id":123,"labels":["..."],"force":false}`) |
+| GET | `/api/v1/github/queued-jobs` | GitHub Actions jobs waiting for a runner (`?matching=all`, `?refresh=true`) |
 | GET | `/api/v1/vms` | List local Tart VMs / images |
 | GET | `/api/v1/vms/{name}` | VM detail including IP |
 | DELETE | `/api/v1/vms/{name}` | Delete a VM |
@@ -198,6 +253,7 @@ Each service serves its own OpenAPI 3.1 spec and a browsable Redoc page:
 | GET | `/api/v1/jobs/{id}` | Job detail |
 | POST | `/api/v1/jobs/{id}/cancel` | Cancel one job (and on its host) |
 | POST | `/api/v1/jobs/cancel` | Cancel by labels across all hosts |
+| POST | `/api/v1/jobs/dispatch` | Queue and place a job (body `{"id":123,"labels":["..."],"host":null,"force":false}`) |
 | GET | `/api/v1/hosts` | List executors and their last-polled status |
 | GET | `/api/v1/hosts/{hostname}` | Executor detail |
 | POST | `/api/v1/hosts/refresh` | Force an immediate status re-poll |

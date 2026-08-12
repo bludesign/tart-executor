@@ -8,7 +8,7 @@ info:
     When an `apiToken` is configured in `~/tart-executor.yaml`, every `/api/v1/*` endpoint
     except `/health`, `/openapi.yaml`, and `/docs` requires an
     `Authorization: Bearer <token>` header.
-  version: 0.24.0
+  version: 0.25.0
 servers:
   - url: /api/v1
     description: Served on the executor's webhook port (see `webhook.port`, e.g. 3250).
@@ -19,6 +19,7 @@ tags:
   - name: Jobs
   - name: Virtual Machines
   - name: Settings
+  - name: GitHub
 paths:
   /health:
     get:
@@ -144,6 +145,101 @@ paths:
               schema:
                 $ref: "#/components/schemas/CancelResponse"
         "401": { $ref: "#/components/responses/Unauthorized" }
+  /jobs/dispatch:
+    post:
+      tags: [Jobs]
+      summary: Start a virtual machine for a job
+      description: >-
+        Starts a virtual machine for a GitHub Actions job the executor never received a webhook
+        for, or received and lost. Applies exactly the same label rules as the webhook path, so a
+        dispatched job cannot reach a machine the webhook path would have refused.
+
+
+        Never returns an ambiguous success: either a machine was started (`200`, `started: true`)
+        or the response says why not (`409`/`422` with a `reason`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExecutorDispatchRequest"
+      responses:
+        "200":
+          description: A virtual machine was started for the job.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExecutorDispatchResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409":
+          description: >-
+            Nothing was started. `virtual_machine_exists` means a machine for this job id is
+            already running here and `force` will not override it — cancel the job first.
+            `already_tracked` and `at_capacity` are both overridden by `force`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExecutorDispatchResponse"
+        "422":
+          description: The labels do not describe a job this executor can run.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExecutorDispatchResponse"
+  /github/queued-jobs:
+    get:
+      tags: [GitHub]
+      summary: List GitHub Actions jobs waiting for a runner
+      description: >-
+        Uses the executor's GitHub App credentials to find every Actions job GitHub currently
+        reports as `queued`, annotated with what this executor would do with it. Callers need no
+        GitHub credentials of their own.
+
+
+        Results are cached and served stale-while-revalidate, so polling is cheap. A scan that
+        hits a repository cap, its time budget, or the rate-limit floor still returns `200` with
+        `truncated: true` and an explanation in `warnings` — a degraded scan must never look like
+        an empty queue.
+
+
+        Requires the GitHub App to hold the `Actions: read` permission. Without it every scan is
+        denied and the reason appears in `warnings`.
+      parameters:
+        - name: matching
+          in: query
+          required: false
+          description: >-
+            `true` (default) returns only jobs this executor's runner labels accept. `all`
+            returns every queued job, each carrying `matchesRunnerLabels`. Callers aggregating a
+            heterogeneous fleet should use `all`, or jobs only another executor can run are
+            silently missing.
+          schema:
+            type: string
+            enum: [ "true", all ]
+        - name: refresh
+          in: query
+          required: false
+          description: Set to `true` to bypass the cache and force a fresh scan.
+          schema: { type: string, enum: [ "true" ] }
+      responses:
+        "200":
+          description: The queued jobs, possibly from a partial scan (see `truncated`/`warnings`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubQueuedJobsResponse"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "502":
+          description: The scan failed and no earlier snapshot was available.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "503":
+          description: GitHub scanning is disabled or unconfigured (`github.scan.enabled`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
   /vms:
     get:
       tags: [Virtual Machines]
@@ -392,3 +488,103 @@ components:
       properties:
         cancelled: { type: boolean }
         cancelledCount: { type: [integer, "null"] }
+    DispatchSkipReason:
+      type: string
+      enum: [virtual_machine_exists, already_tracked, at_capacity, label_mismatch, no_host_available]
+      description: >-
+        Why nothing was started. `virtual_machine_exists` is never overridden by `force`;
+        `already_tracked` and `at_capacity` are. `no_host_available` is router-only.
+    ExecutorDispatchRequest:
+      type: object
+      required: [id, labels]
+      properties:
+        id:
+          type: integer
+          description: GitHub workflow job id.
+        labels:
+          type: array
+          minItems: 1
+          items: { type: string }
+          description: >-
+            The job's GitHub labels, **verbatim**. These become the runner's `--labels`, so
+            reordering, filtering, or otherwise normalising them registers a runner GitHub is not
+            waiting on: the machine boots, idles, and the job stays queued while this endpoint
+            reports success. Copy the array straight from the job.
+        force:
+          type: [boolean, "null"]
+          description: >-
+            Bypasses the already-tracked and capacity guards. Deliberately over-commits the host
+            past `tart.numberOfVirtualMachines`, ignoring `cpuLimit` and `totalMemory`. Never
+            bypasses the existing-machine guard.
+    ExecutorDispatchResponse:
+      type: object
+      required: [started, jobId, hostname, forced]
+      properties:
+        started: { type: boolean }
+        jobId: { type: integer }
+        hostname: { type: string }
+        vmName:
+          type: [string, "null"]
+          description: The machine that was started, or the existing one on a conflict.
+        imageName: { type: [string, "null"] }
+        cpu: { type: [integer, "null"] }
+        memory: { type: [integer, "null"] }
+        forced: { type: boolean }
+        reason:
+          oneOf:
+            - $ref: "#/components/schemas/DispatchSkipReason"
+            - type: "null"
+        message: { type: [string, "null"] }
+    GitHubQueuedJobDTO:
+      type: object
+      required: [id, runId, name, repository, labels, createdAt, matchesRunnerLabels]
+      properties:
+        id:
+          type: integer
+          description: GitHub workflow job id. Pass this to `/jobs/dispatch`.
+        runId: { type: integer }
+        name: { type: string }
+        workflowName: { type: [string, "null"] }
+        repository:
+          type: string
+          description: "`owner/repo`."
+        htmlUrl: { type: [string, "null"] }
+        labels:
+          type: array
+          items: { type: string }
+          description: >-
+            GitHub's label set, sorted for stable output but otherwise untouched. Pass this
+            straight to `/jobs/dispatch`.
+        createdAt: { type: string, format: date-time }
+        matchesRunnerLabels:
+          type: boolean
+          description: Whether this executor's runner labels and image rule accept the job.
+        labelMismatchReason:
+          type: [string, "null"]
+          description: >-
+            Why the job was rejected. A long-queued job with a reason here is usually a workflow
+            with the wrong `runs-on`, not a lost webhook.
+        imageName: { type: [string, "null"] }
+        cpu: { type: [integer, "null"] }
+        memory: { type: [integer, "null"] }
+    GitHubQueuedJobsResponse:
+      type: object
+      required: [hostname, jobs, scannedAt, repositoriesScanned, truncated, warnings]
+      properties:
+        hostname: { type: string }
+        jobs:
+          type: array
+          items: { $ref: "#/components/schemas/GitHubQueuedJobDTO" }
+        scannedAt: { type: string, format: date-time }
+        repositoriesScanned: { type: integer }
+        truncated:
+          type: boolean
+          description: The scan stopped before covering every repository.
+        warnings:
+          type: array
+          items: { type: string }
+          description: >-
+            Why the scan was degraded, e.g. a missing `Actions: read` permission or a spent rate
+            limit. Show these; an empty `jobs` array alone does not mean the queue is empty.
+        rateLimitRemaining: { type: [integer, "null"] }
+        rateLimitResetAt: { type: [string, "null"], format: date-time }

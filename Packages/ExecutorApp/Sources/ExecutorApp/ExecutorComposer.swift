@@ -29,6 +29,15 @@ public final class ExecutorComposer {
             shell: ProcessShell()
         )
 
+        // One client shared by the runner registration handler and the queued-job scanner, so
+        // both go through the same GitHub App credentials.
+        let gitHubClient = NetworkingGitHubClient(
+            credentialsStore: environment,
+            networkingService: URLSessionNetworkingService(
+                logger: Self.logger(environment, subsystem: "URLSessionNetworkingService")
+            )
+        )
+
         let sshClient = VirtualMachineSSHClient(
             logger: Self.logger(environment, subsystem: "VirtualMachineSSHClient"),
             client: CitadelSSHClient(
@@ -40,17 +49,22 @@ public final class ExecutorComposer {
                 PostBootScriptSSHConnectionHandler(),
                 GitHubActionsRunnerSSHConnectionHandler(
                     logger: Self.logger(environment, subsystem: "GitHubActionsRunnerSSHConnectionHandler"),
-                    client: NetworkingGitHubClient(
-                        credentialsStore: environment,
-                        networkingService: URLSessionNetworkingService(
-                            logger: Self.logger(environment, subsystem: "URLSessionNetworkingService")
-                        )
-                    ),
+                    client: gitHubClient,
                     credentialsStore: environment,
                     configuration: environment
                 )
             ])
         )
+
+        let queuedJobsProvider: GitHubQueuedJobsProviding? = environment.gitHubScan.isEnabled
+            ? GitHubActionsScanner(
+                client: gitHubClient,
+                credentialsStore: environment,
+                runnerScope: environment.runnerScope,
+                configuration: environment.gitHubScan,
+                logger: Self.logger(environment, subsystem: "GitHubActionsScanner")
+            )
+            : nil
 
         executorServer = ExecutorServer(
             logger: Self.logger(environment, subsystem: "ExecutorServer"),
@@ -59,7 +73,8 @@ public final class ExecutorComposer {
                 tart: tart,
                 sshClient: sshClient
             ),
-            settings: environment
+            settings: environment,
+            queuedJobsProvider: queuedJobsProvider
         )
     }
 

@@ -50,6 +50,42 @@ extension EnvironmentYaml {
         let repositoryName: String?
         let appId: String
         let privateKey: String
+        let scan: Scan?
+    }
+}
+
+// MARK: - Github Scan
+
+extension EnvironmentYaml.Github {
+    /// Bounds on the GitHub Actions queue scan. Every field is optional so existing config files
+    /// keep working; omitting the whole block leaves scanning on with the defaults.
+    struct Scan: Decodable {
+        let enabled: Bool?
+        let cacheSeconds: Int?
+        let repositoryCacheSeconds: Int?
+        let maxRepositories: Int?
+        let maxConcurrentRequests: Int?
+        let runsPerRepository: Int?
+        let timeoutSeconds: Int?
+        let rateLimitFloor: Int?
+        let includeRepositories: [String]?
+        let excludeRepositories: [String]?
+
+        var configuration: GitHubScanConfiguration {
+            let defaults = GitHubScanConfiguration.default
+            return GitHubScanConfiguration(
+                isEnabled: enabled ?? defaults.isEnabled,
+                cacheSeconds: cacheSeconds.map(TimeInterval.init) ?? defaults.cacheSeconds,
+                repositoryCacheSeconds: repositoryCacheSeconds.map(TimeInterval.init) ?? defaults.repositoryCacheSeconds,
+                maxRepositories: maxRepositories ?? defaults.maxRepositories,
+                maxConcurrentRequests: maxConcurrentRequests ?? defaults.maxConcurrentRequests,
+                runsPerRepository: runsPerRepository ?? defaults.runsPerRepository,
+                timeoutSeconds: timeoutSeconds.map(TimeInterval.init) ?? defaults.timeoutSeconds,
+                rateLimitFloor: rateLimitFloor ?? defaults.rateLimitFloor,
+                includeRepositories: includeRepositories ?? defaults.includeRepositories,
+                excludeRepositories: excludeRepositories ?? defaults.excludeRepositories
+            )
+        }
     }
 }
 

@@ -45,7 +45,7 @@ public struct WorkflowJob: Codable, Identifiable, Hashable {
     }
 }
 
-public enum WorkflowAction: String {
+public enum WorkflowAction: String, Sendable {
     case routerStart = "router_start"
     case waiting
     case queued
@@ -64,8 +64,18 @@ public struct WebhookResponse: Codable {
     public struct WorkflowJobResponse: Codable, Identifiable {
         public let id: Int
         public let labels: Set<String>
+
+        public init(id: Int, labels: Set<String>) {
+            self.id = id
+            self.labels = labels
+        }
     }
 
     public let action: WorkflowAction
     public let workflow_job: WorkflowJobResponse
+
+    public init(action: WorkflowAction, workflow_job: WorkflowJobResponse) {
+        self.action = action
+        self.workflow_job = workflow_job
+    }
 }

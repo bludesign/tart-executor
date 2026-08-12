@@ -31,6 +31,17 @@ public enum LogParameterKey {
     public static let activeJobs = "active_jobs"
     public static let maxMachines = "max_machines"
     public static let cancelledCount = "cancelled_count"
+    public static let state = "state"
+    public static let forced = "forced"
+
+    // GitHub scanning
+    public static let repository = "repository"
+    public static let repositoryCount = "repository_count"
+    public static let jobCount = "job_count"
+    public static let durationMs = "duration_ms"
+    public static let truncated = "truncated"
+    public static let rateLimitRemaining = "rate_limit_remaining"
+    public static let statusCode = "status_code"
 
     // Resource allocation
     public static let cpu = "cpu"
