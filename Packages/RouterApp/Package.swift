@@ -26,6 +26,10 @@ let package = Package(
             .product(name: "FlyingFox", package: "FlyingFox")
         ], exclude: [
             "Resources/openapi.yaml"
+        ]),
+        .testTarget(name: "RouterAppTests", dependencies: [
+            "RouterApp",
+            .product(name: "TartCommon", package: "TartCommon")
         ])
     ]
 )

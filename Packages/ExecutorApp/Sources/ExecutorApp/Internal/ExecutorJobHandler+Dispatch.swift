@@ -10,6 +10,7 @@ enum ExecutorDispatchOutcome: Sendable {
     case skippedVirtualMachineExists(vmName: String)
     case skippedAlreadyTracked(state: ExecutorJobState)
     case skippedAtCapacity(active: Int, limit: Int)
+    case skippedInsufficientResources(cpuUsed: Int, cpuLimit: Int, memoryUsed: Int, memoryLimit: Int)
 }
 
 extension ExecutorJobHandler {
@@ -47,10 +48,28 @@ extension ExecutorJobHandler {
                 ])
                 return .skippedAtCapacity(active: activeJobs.count, limit: numberOfMachines)
             }
+            guard hasResources(for: pendingJob) else {
+                let status = jobStatus
+                logResourceCapacityReached(pendingJob)
+                return .skippedInsufficientResources(
+                    cpuUsed: status.cpuUsed,
+                    cpuLimit: cpuLimit,
+                    memoryUsed: status.memoryUsed,
+                    memoryLimit: totalMemory
+                )
+            }
         } else if activeJobs.count >= numberOfMachines {
             logger.error("Job Dispatch Forced Over Capacity", pendingJob: pendingJob, [
                 LogParameterKey.activeJobs: "\(activeJobs.count)",
                 LogParameterKey.maxMachines: "\(numberOfMachines)"
+            ])
+        } else if !hasResources(for: pendingJob) {
+            let status = jobStatus
+            logger.error("Job Dispatch Forced Over Aggregate Resource Capacity", pendingJob: pendingJob, [
+                LogParameterKey.cpuUsed: "\(status.cpuUsed)",
+                LogParameterKey.cpuLimit: "\(cpuLimit)",
+                LogParameterKey.memoryUsed: "\(status.memoryUsed)",
+                LogParameterKey.memoryLimit: "\(totalMemory)"
             ])
         }
 

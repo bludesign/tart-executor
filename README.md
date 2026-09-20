@@ -29,9 +29,9 @@ Create config file in home directory named `tart-executor.yaml`
 ```yaml
 # Host name for metrics and logs (requried)
 hostname: server
-# Max CPUs to use (requried)
+# Total CPU capacity used for aggregate VM scheduling (required)
 cpuLimit: 10
-# Total memory in MB binary used only for metrics endpoint (requried)
+# Total memory capacity used for aggregate VM scheduling, in binary MB (required)
 totalMemory: 16384
 # Optional logging endpoint URL to send NDJSON via HTTP POST (optional)
 loggingEndpoint: http://10.0.1.50:8080/logs
@@ -139,9 +139,9 @@ hosts:
     url: http://127.0.0.1:3250
     # Priority to send jobs to host (required)
     priority: 0
-    # Don't send jobs needing more CPU then this limit (optional)
+    # Per-job CPU maximum. Aggregate capacity comes from the executor's cpuLimit (optional)
     cpuLimit: 5
-    # Don't send jobs needing more memory then this limit. Memory in MB binary (optional)
+    # Per-job memory maximum. Aggregate capacity comes from the executor's totalMemory (optional)
     memoryLimit: 8192
   - hostname: server-2
     url: http://10.0.4.2:3250
@@ -152,6 +152,14 @@ hosts:
 ```
 
 Run by typing `tart-router` into terminal.
+
+The router treats each host's `cpuLimit` and `memoryLimit` as per-job maximums. Before
+dispatching, it also checks the executor's live aggregate CPU and memory usage and its virtual
+machine count. A job without an explicit `cpu:` or `memory:` label uses the executor's configured
+default for scheduling when available. Unknown resource values retain the previous behavior and
+do not block dispatch. For example, a 10-CPU / 28672-MB executor can use router per-job limits of
+`cpuLimit: 10` and `memoryLimit: 28672`: a 7-CPU / 24576-MB job can share the host with a
+2-CPU / 4096-MB job, while another 7-CPU / 24576-MB job waits for resources.
 
 ### Github App
 

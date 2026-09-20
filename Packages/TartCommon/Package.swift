@@ -19,6 +19,7 @@ let package = Package(
         .target(name: "TartCommon", dependencies: [
             .product(name: "LoggingDomain", package: "Logging"),
             .product(name: "FlyingFox", package: "FlyingFox")
-        ])
+        ]),
+        .testTarget(name: "TartCommonTests", dependencies: ["TartCommon"])
     ]
 )

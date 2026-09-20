@@ -128,6 +128,21 @@ extension ExecutorServer {
                 statusCode: .conflict,
                 encoder: apiEncoder
             )
+        case let .skippedInsufficientResources(cpuUsed, cpuLimit, memoryUsed, memoryLimit):
+            return .json(
+                ExecutorDispatchResponse(
+                    started: false,
+                    jobId: workflowJob.id,
+                    hostname: settings.hostname,
+                    cpu: pendingJob.cpu,
+                    memory: pendingJob.memory,
+                    forced: force,
+                    reason: .atCapacity,
+                    message: "Insufficient aggregate resources: CPU \(cpuUsed)/\(cpuLimit), memory \(memoryUsed)/\(memoryLimit) MB."
+                ),
+                statusCode: .conflict,
+                encoder: apiEncoder
+            )
         }
     }
 

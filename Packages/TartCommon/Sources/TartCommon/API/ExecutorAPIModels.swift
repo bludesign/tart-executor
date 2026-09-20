@@ -71,8 +71,8 @@ public enum DispatchSkipReason: String, Codable {
     case virtualMachineExists = "virtual_machine_exists"
     /// The job is already queued or in progress here. Overridden by `force`.
     case alreadyTracked = "already_tracked"
-    /// The executor is already running its configured maximum number of machines. Overridden by
-    /// `force`, which deliberately over-commits the host.
+    /// The executor has reached its VM, CPU, or memory capacity. Overridden by `force`, which
+    /// deliberately over-commits the host.
     case atCapacity = "at_capacity"
     /// The labels do not describe a job this executor can run.
     case labelMismatch = "label_mismatch"
@@ -232,6 +232,8 @@ public struct ExecutorStatusResponse: Codable {
     public let cpuUsed: Int
     public let totalMemory: Int
     public let memoryUsed: Int
+    public let defaultCpu: Int?
+    public let defaultMemory: Int?
     /// Total capacity of the volume backing the Tart home directory, in bytes.
     public let diskTotalBytes: Int64?
     /// Available capacity of the Tart home volume, in bytes.
@@ -250,6 +252,8 @@ public struct ExecutorStatusResponse: Codable {
         cpuUsed: Int,
         totalMemory: Int,
         memoryUsed: Int,
+        defaultCpu: Int? = nil,
+        defaultMemory: Int? = nil,
         diskTotalBytes: Int64? = nil,
         diskFreeBytes: Int64? = nil,
         diskUsedBytes: Int64? = nil
@@ -264,6 +268,8 @@ public struct ExecutorStatusResponse: Codable {
         self.cpuUsed = cpuUsed
         self.totalMemory = totalMemory
         self.memoryUsed = memoryUsed
+        self.defaultCpu = defaultCpu
+        self.defaultMemory = defaultMemory
         self.diskTotalBytes = diskTotalBytes
         self.diskFreeBytes = diskFreeBytes
         self.diskUsedBytes = diskUsedBytes

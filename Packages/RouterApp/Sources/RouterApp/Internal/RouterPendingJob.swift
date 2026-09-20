@@ -27,12 +27,19 @@ final class RouterPendingJob: Identifiable {
         self.pinnedHostname = pinnedHostname
     }
 
-    func hostCanRun(_ host: TartHost) -> Bool {
+    func resourceRequirements(for status: TartHostStatus) -> ResourceRequirements {
+        ResourceRequirements(
+            cpu: workflowJob.cpu ?? status.defaultCpu,
+            memory: workflowJob.memory ?? status.defaultMemory
+        )
+    }
+
+    func hostCanRun(_ host: TartHost, requirements: ResourceRequirements) -> Bool {
         if let pinnedHostname, host.hostname != pinnedHostname {
             return false
-        } else if let jobMemory = workflowJob.memory, let hostMemory = host.memoryLimit, jobMemory > hostMemory {
+        } else if let jobMemory = requirements.memory, let hostMemory = host.memoryLimit, jobMemory > hostMemory {
             return false
-        } else if let jobCpu = workflowJob.cpu, let hostCpu = host.cpuLimit, jobCpu > hostCpu {
+        } else if let jobCpu = requirements.cpu, let hostCpu = host.cpuLimit, jobCpu > hostCpu {
             return false
         } else {
             return true

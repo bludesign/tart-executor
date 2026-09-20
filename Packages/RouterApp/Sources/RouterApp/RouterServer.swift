@@ -103,7 +103,7 @@ public final class RouterServer {
             return .init(statusCode: .ok)
         }
 
-        await server.appendRoute("POST /") { [weak self] request in
+        await server.appendRoute("POST /") { [weak self] (request: HTTPRequest) in
             guard let self else {
                 return .init(statusCode: .badGateway)
             }
@@ -125,7 +125,9 @@ public final class RouterServer {
                 }
                 let job = RouterPendingJob(
                     workflowJob: workflowJob,
-                    headers: request.headers,
+                    headers: request.headers.reduce(into: [:]) { headers, element in
+                        headers[element.key] = element.value
+                    },
                     bodyData: bodyData,
                     pinnedHostname: nil
                 )

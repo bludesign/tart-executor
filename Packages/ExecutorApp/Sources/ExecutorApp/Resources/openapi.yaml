@@ -377,10 +377,20 @@ components:
         startedPendingJobs: { type: integer }
         activeVirtualMachines: { type: integer }
         virtualMachineLimit: { type: integer }
-        cpuLimit: { type: integer }
+        cpuLimit:
+          type: integer
+          description: Aggregate CPU capacity available to virtual machines.
         cpuUsed: { type: integer }
-        totalMemory: { type: integer }
+        totalMemory:
+          type: integer
+          description: Aggregate memory capacity available to virtual machines, in binary MB.
         memoryUsed: { type: integer }
+        defaultCpu:
+          type: [integer, "null"]
+          description: Per-VM CPU used when a job omits the cpu label.
+        defaultMemory:
+          type: [integer, "null"]
+          description: Per-VM memory used when a job omits the memory label, in binary MB.
         diskTotalBytes:
           type: [integer, "null"]
           description: Total capacity of the volume backing the Tart home directory, in bytes.
@@ -409,8 +419,12 @@ components:
         netBridgedAdapter: { type: [string, "null"] }
         defaultCpu: { type: [integer, "null"] }
         defaultMemory: { type: [integer, "null"] }
-        cpuLimit: { type: integer }
-        totalMemory: { type: integer }
+        cpuLimit:
+          type: integer
+          description: Aggregate CPU capacity available to virtual machines.
+        totalMemory:
+          type: integer
+          description: Aggregate memory capacity available to virtual machines, in binary MB.
         loggingEndpoint: { type: [string, "null"] }
         authEnabled:
           type: boolean

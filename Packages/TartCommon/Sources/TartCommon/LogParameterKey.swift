@@ -46,6 +46,12 @@ public enum LogParameterKey {
     // Resource allocation
     public static let cpu = "cpu"
     public static let memory = "memory"
+    public static let cpuLimit = "cpu_limit"
+    public static let cpuUsed = "cpu_used"
+    public static let memoryLimit = "memory_limit"
+    public static let memoryUsed = "memory_used"
+    public static let activeVirtualMachines = "active_virtual_machines"
+    public static let virtualMachineLimit = "virtual_machine_limit"
     public static let isInsecure = "is_insecure"
 
     // Server configuration
