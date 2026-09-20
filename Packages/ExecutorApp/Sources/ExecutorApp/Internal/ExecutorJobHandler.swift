@@ -17,6 +17,8 @@ actor ExecutorJobHandler {
     // Module-internal rather than private so `ExecutorJobHandler+Dispatch` can reach them; the
     // actor itself is internal, so this widens nothing outside ExecutorApp.
     let numberOfMachines: Int
+    let cpuLimit: Int
+    let totalMemory: Int
     var activeJobs = [UUID: ActiveJob]()
     var inProgressJobs = [Int: ExecutorPendingJob]()
     var pendingJobs = [Int: ExecutorPendingJob]()
@@ -35,11 +37,20 @@ actor ExecutorJobHandler {
         )
     }
 
-    init(routerUrl: String?, virtualMachineProvider: VirtualMachineProvider, logger: Logger, numberOfMachines: Int) {
+    init(
+        routerUrl: String?,
+        virtualMachineProvider: VirtualMachineProvider,
+        logger: Logger,
+        numberOfMachines: Int,
+        cpuLimit: Int,
+        totalMemory: Int
+    ) {
         self.routerUrl = routerUrl
         self.virtualMachineProvider = virtualMachineProvider
         self.logger = logger
         self.numberOfMachines = numberOfMachines
+        self.cpuLimit = cpuLimit
+        self.totalMemory = totalMemory
 
         Task {
            await activeJobEnded()
@@ -163,20 +174,24 @@ actor ExecutorJobHandler {
 private extension ExecutorJobHandler {
     func handleRouterStart(pendingJob: ExecutorPendingJob) -> Bool {
         let isAlreadyRunning = activeJobs.values.contains { $0.jobId == pendingJob.id }
-        let willStart = !isAlreadyRunning && activeJobs.count < numberOfMachines
-        logger.info("Job Handle Router Started", pendingJob: pendingJob, [
-            LogParameterKey.willStart: "\(willStart)",
-            LogParameterKey.activeJobs: "\(activeJobs.count)",
-            LogParameterKey.maxMachines: "\(numberOfMachines)"
-        ])
         if isAlreadyRunning {
             // The router sent a job this executor already has a virtual machine for. Report
             // success so the router does not send it elsewhere as well.
             return true
         }
-        guard willStart else {
+        guard hasVirtualMachineSlot else {
+            logVirtualMachineLimitReached(pendingJob)
             return false
         }
+        guard hasResources(for: pendingJob) else {
+            logResourceCapacityReached(pendingJob)
+            return false
+        }
+        logger.info("Job Handle Router Started", pendingJob: pendingJob, [
+            LogParameterKey.willStart: "true",
+            LogParameterKey.activeJobs: "\(activeJobs.count)",
+            LogParameterKey.maxMachines: "\(numberOfMachines)"
+        ])
         start(pendingJob: pendingJob)
         return true
     }
@@ -191,9 +206,7 @@ private extension ExecutorJobHandler {
         logger.info("Job Handle Pending", pendingJob: pendingJob)
         pendingJobs[pendingJob.id] = pendingJob
 
-        if activeJobs.count < numberOfMachines {
-            start(pendingJob: pendingJob)
-        }
+        startIfCapacityAllows(pendingJob)
     }
 
     func handleInProgress(pendingJob: ExecutorPendingJob) {
@@ -257,8 +270,10 @@ private extension ExecutorJobHandler {
     }
 
     func startNextPendingJob() {
-        guard activeJobs.count < numberOfMachines else { return }
-        guard let pendingJob = pendingJobs.first(where: { !$0.value.didStart })?.value else { return }
+        guard hasVirtualMachineSlot else { return }
+        guard let pendingJob = pendingJobs.values
+            .filter({ !$0.didStart && hasResources(for: $0) })
+            .min(by: { $0.queuedAt < $1.queuedAt }) else { return }
         start(pendingJob: pendingJob)
     }
 

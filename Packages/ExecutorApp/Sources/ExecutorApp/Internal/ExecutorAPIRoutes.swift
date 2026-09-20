@@ -39,6 +39,8 @@ extension ExecutorServer {
                 cpuUsed: jobStatus.cpuUsed,
                 totalMemory: settings.totalMemory,
                 memoryUsed: jobStatus.memoryUsed,
+                defaultCpu: settings.defaultCpu,
+                defaultMemory: settings.defaultMemory,
                 diskTotalBytes: disk?.totalBytes,
                 diskFreeBytes: disk?.freeBytes,
                 diskUsedBytes: disk?.usedBytes

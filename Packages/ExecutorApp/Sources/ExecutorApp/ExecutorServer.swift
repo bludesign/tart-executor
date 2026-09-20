@@ -75,7 +75,9 @@ final class ExecutorServer {
             routerUrl: settings.routerUrl,
             virtualMachineProvider: virtualMachineProvider,
             logger: logger,
-            numberOfMachines: settings.numberOfMachines
+            numberOfMachines: settings.numberOfMachines,
+            cpuLimit: settings.cpuLimit,
+            totalMemory: settings.totalMemory
         )
 
         Task {
@@ -181,7 +183,9 @@ tart_executor_memory_used\(labels) \(jobStatus.memoryUsed)
                 cpuLimit: settings.cpuLimit,
                 cpuUsed: jobStatus.cpuUsed,
                 totalMemory: settings.totalMemory,
-                memoryUsed: jobStatus.memoryUsed
+                memoryUsed: jobStatus.memoryUsed,
+                defaultCpu: settings.defaultCpu,
+                defaultMemory: settings.defaultMemory
             )
 
             let body = try encoder.encode(status)

@@ -253,10 +253,20 @@ components:
         startedPendingJobs: { type: integer }
         activeVirtualMachines: { type: integer }
         virtualMachineLimit: { type: integer }
-        cpuLimit: { type: integer }
+        cpuLimit:
+          type: integer
+          description: Aggregate CPU capacity configured by the executor.
         cpuUsed: { type: integer }
-        totalMemory: { type: integer }
+        totalMemory:
+          type: integer
+          description: Aggregate VM memory capacity configured by the executor, in binary MB.
         memoryUsed: { type: integer }
+        defaultCpu:
+          type: [integer, "null"]
+          description: Per-VM CPU used when a job omits the cpu label.
+        defaultMemory:
+          type: [integer, "null"]
+          description: Per-VM memory used when a job omits the memory label, in binary MB.
     RouterStatusResponse:
       type: object
       required:
@@ -276,8 +286,12 @@ components:
         hostname: { type: string }
         url: { type: string }
         priority: { type: integer }
-        cpuLimit: { type: [integer, "null"] }
-        memoryLimit: { type: [integer, "null"] }
+        cpuLimit:
+          type: [integer, "null"]
+          description: Optional per-job CPU maximum; separate from aggregate executor capacity.
+        memoryLimit:
+          type: [integer, "null"]
+          description: Optional per-job memory maximum in binary MB; separate from aggregate executor capacity.
     RouterSettingsResponse:
       type: object
       required: [hostname, labels, port, authEnabled, hosts]

@@ -323,21 +323,28 @@ private extension RouterJobHandler {
     func sendQueuedJobs() async {
         // Iterate over a snapshot: every send suspends this actor and webhooks can mutate
         // `jobs` in the meantime, so each job is re-checked right before it is sent.
-        for job in jobs.values {
+        for job in jobs.values.sorted(by: { $0.receivedAt < $1.receivedAt }) {
             guard jobs[job.id] === job, job.sentToHost == nil, job.workflowJob.action == .queued else { continue }
             await sendQueuedJob(job)
         }
     }
 
     func sendQueuedJob(_ job: RouterPendingJob) async {
-        var foundEligibleHost = false
+        var foundPerJobEligibleHost = false
+        var foundResourceCapacity = false
+        var foundVirtualMachineSlot = false
         for host in hosts {
             // The job may have completed or been attributed to a host while a previous send
             // attempt was awaited.
             guard jobs[job.id] === job, job.sentToHost == nil, job.workflowJob.action == .queued else { return }
-            guard let lastStatus = host.lastStatus, job.hostCanRun(host) else { continue }
-            foundEligibleHost = true
+            guard let lastStatus = host.lastStatus else { continue }
+            let requirements = job.resourceRequirements(for: lastStatus)
+            guard job.hostCanRun(host, requirements: requirements) else { continue }
+            foundPerJobEligibleHost = true
+            guard lastStatus.resourceCapacity.canFit(requirements) else { continue }
+            foundResourceCapacity = true
             guard lastStatus.activeVirtualMachines < lastStatus.virtualMachineLimit else { continue }
+            foundVirtualMachineSlot = true
             do {
                 try await Self.sendJob(host: host, job: job, logger: logger)
             } catch {
@@ -346,7 +353,10 @@ private extension RouterJobHandler {
             }
             // The virtual machine now exists on the host no matter what happened to the job
             // while the send was in flight.
-            host.lastStatus?.activeVirtualMachines += 1
+            var reservedStatus = lastStatus
+            reservedStatus.activeVirtualMachines += 1
+            reservedStatus.reserve(requirements)
+            host.lastStatus = reservedStatus
             if jobs[job.id] === job, job.sentToHost == nil, job.workflowJob.action == .queued {
                 job.sentToHost = host
             } else if jobs[job.id] !== job {
@@ -363,8 +373,12 @@ private extension RouterJobHandler {
             }
             return
         }
-        if !foundEligibleHost {
-            logger.error("Job Router No Host Can Handle Job CPU/Memory", job: job)
+        if !foundPerJobEligibleHost {
+            logger.error("Job Router No Host Matches Per-Job Limits", job: job)
+        } else if !foundResourceCapacity {
+            logger.info("Job Router No Host Has Aggregate Resource Capacity", job: job)
+        } else if !foundVirtualMachineSlot {
+            logger.info("Job Router No Host Has Virtual Machine Capacity", job: job)
         }
     }
 }
