@@ -36,6 +36,7 @@ public actor GitHubActionsScanner: GitHubQueuedJobsProviding {
         var jobs: [GitHubQueuedJob] = []
         var cacheUpdates: [String: CachedResponse] = [:]
         var warnings: [String] = []
+        var truncated = false
         var rateLimit: RateLimit?
         /// The remaining request budget fell below the configured floor.
         var exhausted = false
@@ -84,6 +85,30 @@ public actor GitHubActionsScanner: GitHubQueuedJobsProviding {
             return snapshot
         }
         return try await coalescedScan()
+    }
+
+    public func job(id: Int, repository: String) async throws -> GitHubJobStatus {
+        guard id > 0 else { throw GitHubJobLookupError.invalidJobId }
+        guard GitHubJobStatus.isValidRepository(repository) else {
+            throw GitHubJobLookupError.invalidRepository
+        }
+        let token = try await accessToken()
+        let url = baseURL.appending(path: "/repos/\(repository)/actions/jobs/\(id)")
+        // Recovery decisions must use a current answer. In particular, a failed lookup must
+        // never fall back to a previous queued/completed response or a partial scan snapshot.
+        let outcome = await fetch(GitHubJob.self, url: url, token: token, cache: [:])
+        if outcome.tokenRejected { invalidateToken() }
+        guard let job = outcome.value else {
+            throw GitHubJobLookupError.unavailable(outcome.warning ?? "GitHub job status is unavailable")
+        }
+        guard job.id == id else { throw GitHubJobLookupError.mismatchedJobId }
+        return GitHubJobStatus(
+            id: job.id,
+            repository: repository,
+            status: job.status,
+            labels: Set(job.labels),
+            runnerName: job.runnerName
+        )
     }
 }
 
@@ -180,6 +205,7 @@ private extension GitHubActionsScanner {
                 jobs.append(contentsOf: result.jobs)
                 cacheUpdates.merge(result.cacheUpdates) { _, new in new }
                 warnings.append(contentsOf: result.warnings)
+                if result.truncated { truncated = true }
                 if let rateLimit = result.rateLimit { latestRateLimit = rateLimit }
                 if result.exhausted { exhausted = true }
                 if result.tokenRejected { tokenRejected = true }

@@ -14,7 +14,7 @@ struct ActiveJob {
 }
 
 actor ExecutorJobHandler {
-    // Module-internal rather than private so `ExecutorJobHandler+Dispatch` can reach them; the
+    // Module-internal rather than private so the dispatch and recovery extensions can reach them; the
     // actor itself is internal, so this widens nothing outside ExecutorApp.
     let numberOfMachines: Int
     let cpuLimit: Int
@@ -22,6 +22,8 @@ actor ExecutorJobHandler {
     var activeJobs = [UUID: ActiveJob]()
     var inProgressJobs = [Int: ExecutorPendingJob]()
     var pendingJobs = [Int: ExecutorPendingJob]()
+    var pendingJobRetries = [Int: PendingJobRetry]()
+    let waitForPendingJobRetry: @Sendable () async throws -> Void
     nonisolated private let routerUrl: String?
     nonisolated private let virtualMachineProvider: VirtualMachineProvider
     nonisolated let logger: Logger
@@ -43,7 +45,10 @@ actor ExecutorJobHandler {
         logger: Logger,
         numberOfMachines: Int,
         cpuLimit: Int,
-        totalMemory: Int
+        totalMemory: Int,
+        waitForPendingJobRetry: @escaping @Sendable () async throws -> Void = {
+            try await Task.sleep(for: .seconds(30))
+        }
     ) {
         self.routerUrl = routerUrl
         self.virtualMachineProvider = virtualMachineProvider
@@ -51,6 +56,7 @@ actor ExecutorJobHandler {
         self.numberOfMachines = numberOfMachines
         self.cpuLimit = cpuLimit
         self.totalMemory = totalMemory
+        self.waitForPendingJobRetry = waitForPendingJobRetry
 
         Task {
            await activeJobEnded()
@@ -76,6 +82,11 @@ actor ExecutorJobHandler {
     }
 
     func cancelAll() {
+        for retry in pendingJobRetries.values {
+            retry.task.cancel()
+        }
+        pendingJobRetries.removeAll()
+        pendingJobs.removeAll()
         for (_, job) in activeJobs {
             job.task.cancel()
         }
@@ -83,19 +94,24 @@ actor ExecutorJobHandler {
 
     @discardableResult
     func cancelJobsByLabels(_ labels: Set<String>) -> Int {
-        var cancalledJobs = 0
+        let pendingIds = pendingJobs.values.filter { $0.workflowJob.labels == labels }.map(\.id)
+        for id in pendingIds {
+            cancelPendingJobRetry(id: id)
+            pendingJobs.removeValue(forKey: id)
+        }
+        var cancelledIds = Set(pendingIds)
         activeJobs.forEach { _, activeJob in
             guard activeJob.labels == labels else {
                 return
             }
-            cancalledJobs += 1
+            cancelledIds.insert(activeJob.jobId)
             activeJob.task.cancel()
         }
         logger.info("Jobs Cancalled With Labels", [
-            LogParameterKey.cancelledCount: "\(cancalledJobs)",
+            LogParameterKey.cancelledCount: "\(cancelledIds.count)",
             LogParameterKey.labels: labels.joined(separator: ",")
         ])
-        return cancalledJobs
+        return cancelledIds.count
     }
 
     /// Snapshot of every job currently tracked (queued, in-progress, or with a lingering VM),
@@ -153,6 +169,7 @@ actor ExecutorJobHandler {
     /// pending/in-progress queues. Returns whether anything was cancelled.
     @discardableResult
     func cancel(jobId: Int) -> Bool {
+        cancelPendingJobRetry(id: jobId)
         var cancelled = false
         for (_, job) in activeJobs where job.jobId == jobId {
             job.task.cancel()
@@ -210,6 +227,7 @@ private extension ExecutorJobHandler {
     }
 
     func handleInProgress(pendingJob: ExecutorPendingJob) {
+        cancelPendingJobRetry(id: pendingJob.id)
         logger.info("Job Handle In Progress", pendingJob: pendingJob)
         let oldJob = pendingJobs.removeValue(forKey: pendingJob.id)
         if let oldJob, !oldJob.didStart {
@@ -225,6 +243,7 @@ private extension ExecutorJobHandler {
     }
 
     func handleCompleted(pendingJob: ExecutorPendingJob) {
+        cancelPendingJobRetry(id: pendingJob.id)
         logger.info("Job Handle Completed", pendingJob: pendingJob)
         let removedInProgressJob = inProgressJobs.removeValue(forKey: pendingJob.id)
         let removedPendingJob = pendingJobs.removeValue(forKey: pendingJob.id)
@@ -269,16 +288,14 @@ private extension ExecutorJobHandler {
         cancelJobsByLabels(labels)
     }
 
-    func startNextPendingJob() {
-        guard hasVirtualMachineSlot else { return }
-        guard let pendingJob = pendingJobs.values
-            .filter({ !$0.didStart && hasResources(for: $0) })
-            .min(by: { $0.queuedAt < $1.queuedAt }) else { return }
-        start(pendingJob: pendingJob)
-    }
-
     func remove(uuid: UUID) {
-        activeJobs.removeValue(forKey: uuid)
+        // Cancellation cleanup and the VM task can both finish. Only the first removal may
+        // release capacity or schedule a replacement.
+        guard let activeJob = activeJobs.removeValue(forKey: uuid) else { return }
+        if !activeJob.task.isCancelled, let pendingJob = pendingJobs[activeJob.jobId],
+           inProgressJobs[activeJob.jobId] == nil {
+            schedulePendingJobRetry(pendingJob)
+        }
         startNextPendingJob()
         Task {
             await activeJobEnded()
@@ -307,6 +324,10 @@ extension ExecutorJobHandler {
     /// check-then-start in `dispatch` safe.
     @discardableResult
     func start(pendingJob: ExecutorPendingJob) -> String {
+        if let existingJob = activeJobs.values.first(where: { $0.jobId == pendingJob.id }) {
+            return existingJob.vmName
+        }
+        cancelPendingJobRetry(id: pendingJob.id)
         logger.info("Job Executor Starting", pendingJob: pendingJob)
         pendingJob.didStart = true
         let runnerLabels = pendingJob.workflowJob.labels.joined(separator: ",")

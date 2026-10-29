@@ -61,6 +61,14 @@ extension WorkflowAction: Codable {
 }
 
 public struct WebhookResponse: Codable {
+    public struct RepositoryResponse: Codable {
+        public let full_name: String
+
+        public init(fullName: String) {
+            full_name = fullName
+        }
+    }
+
     public struct WorkflowJobResponse: Codable, Identifiable {
         public let id: Int
         public let labels: Set<String>
@@ -73,9 +81,11 @@ public struct WebhookResponse: Codable {
 
     public let action: WorkflowAction
     public let workflow_job: WorkflowJobResponse
+    public let repository: RepositoryResponse?
 
-    public init(action: WorkflowAction, workflow_job: WorkflowJobResponse) {
+    public init(action: WorkflowAction, workflow_job: WorkflowJobResponse, repository: RepositoryResponse? = nil) {
         self.action = action
         self.workflow_job = workflow_job
+        self.repository = repository
     }
 }

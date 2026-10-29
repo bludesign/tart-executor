@@ -19,7 +19,10 @@ extension RouterJobHandler {
     /// `force` re-places a job the router already tracks, which clears its host attribution. Only
     /// safe once the caller has confirmed no executor holds a machine for the job — the executors'
     /// duplicate guards are per-host and cannot see each other.
-    func dispatch(id: Int, labels: Set<String>, pinnedHostname: String?, force: Bool) async -> RouterDispatchOutcome {
+    func dispatch(id: Int, labels: Set<String>, pinnedHostname: String?, force: Bool, repository: String? = nil) async -> RouterDispatchOutcome {
+        if completedJobs[id] != nil, !force {
+            return .skippedAlreadyTracked(sentToHost: nil, action: .completed)
+        }
         if let existingJob = jobs[id], !force {
             logger.error("Job Router Dispatch Skipped Already Tracked", job: existingJob)
             return .skippedAlreadyTracked(
@@ -35,7 +38,8 @@ extension RouterJobHandler {
             // unusual about a dispatched job.
             bodyData = try JSONEncoder().encode(WebhookResponse(
                 action: .queued,
-                workflow_job: WebhookResponse.WorkflowJobResponse(id: id, labels: labels)
+                workflow_job: WebhookResponse.WorkflowJobResponse(id: id, labels: labels),
+                repository: repository.map { .init(fullName: $0) }
             ))
         } catch {
             logger.error("Job Router Dispatch Encoding Failed", error: error, [
@@ -48,8 +52,14 @@ extension RouterJobHandler {
             workflowJob: workflowJob,
             headers: [.contentType: "application/json"],
             bodyData: bodyData,
-            pinnedHostname: pinnedHostname
+            pinnedHostname: pinnedHostname,
+            repository: repository
         )
+        if force {
+            completedJobs[id] = nil
+            reconciledCompletedJobs.remove(id)
+        }
+        reconciledAt[id] = nil
         jobs[id] = job
         logger.info("Job Router Dispatch", job: job, [LogParameterKey.forced: "\(force)"])
 

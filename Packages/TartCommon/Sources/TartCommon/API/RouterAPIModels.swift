@@ -9,14 +9,16 @@ public struct RouterJobDTO: Codable {
     public let sentToHost: String?
     public let receivedAt: Date
     public let sentAt: Date?
+    public let repository: String?
 
-    public init(id: Int, action: WorkflowAction, labels: [String], sentToHost: String?, receivedAt: Date, sentAt: Date?) {
+    public init(id: Int, action: WorkflowAction, labels: [String], sentToHost: String?, receivedAt: Date, sentAt: Date?, repository: String? = nil) {
         self.id = id
         self.action = action
         self.labels = labels
         self.sentToHost = sentToHost
         self.receivedAt = receivedAt
         self.sentAt = sentAt
+        self.repository = repository
     }
 }
 
@@ -41,12 +43,15 @@ public struct RouterDispatchRequest: Codable {
     /// Re-places a job the router already tracks. Only safe once the caller has confirmed no
     /// executor holds a virtual machine for this job id.
     public let force: Bool?
+    /// `owner/repo`, used to verify lifecycle state during automatic recovery.
+    public let repository: String?
 
-    public init(id: Int, labels: [String], host: String?, force: Bool?) {
+    public init(id: Int, labels: [String], host: String?, force: Bool?, repository: String? = nil) {
         self.id = id
         self.labels = labels
         self.host = host
         self.force = force
+        self.repository = repository
     }
 }
 

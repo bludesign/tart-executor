@@ -30,18 +30,39 @@ extension TartVirtualMachineProvider: VirtualMachineProvider {
             vmName: imageName,
             runnerLabels: runnerLabels
         ).clone(named: name, isInsecure: isInsecure)
-        if let cpu {
-            try await virtualMachine.setCpu(cpu)
-        }
-        if let memory {
-            try await virtualMachine.setMemory(memory)
-        }
+        try await Self.configureVirtualMachine(virtualMachine, cpu: cpu, memory: memory, logger: logger)
         let connectingVirutalMachine = SSHConnectingVirtualMachine(
             logger: logger,
             virtualMachine: virtualMachine,
             sshClient: sshClient
         )
         return connectingVirutalMachine
+    }
+
+    // The provider owns the clone until configuration succeeds and it can return the VM to
+    // its caller. Failures here must clean up before the executor retries provisioning.
+    static func configureVirtualMachine(
+        _ virtualMachine: any VirtualMachine,
+        cpu: Int?,
+        memory: Int?,
+        logger: Logger
+    ) async throws {
+        do {
+            if let cpu {
+                try await virtualMachine.setCpu(cpu)
+            }
+            if let memory {
+                try await virtualMachine.setMemory(memory)
+            }
+        } catch {
+            let configurationError = error
+            do {
+                try await virtualMachine.delete()
+            } catch {
+                logger.error("Failed removing virtual machine \(virtualMachine.name) after configuration failed: \(error.localizedDescription)")
+            }
+            throw configurationError
+        }
     }
 
     public func removeVirtualMachines(namePrefix: String) async throws -> [String] {

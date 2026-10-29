@@ -1,4 +1,4 @@
-import Combine
+import EnvironmentSettings
 import FlyingFox
 import Foundation
 import LoggingDomain
@@ -12,7 +12,9 @@ public final class RouterServer {
     let hostname: String
     private let logger: Logger
     let jobHandler: RouterJobHandler
-    private var timer: Timer?
+    private var updateTask: Task<Void, Never>?
+    private var reconciliationTask: Task<Void, Never>?
+    private let reconciliation: RouterReconciliationConfiguration
 
     // Management API
     let apiToken: String?
@@ -21,7 +23,10 @@ public final class RouterServer {
     let apiDecoder = JSONDecoder.api
     private(set) var listeningPort = 0
 
-    public init(hosts: [TartHost], labels: Set<String>, hostname: String, apiToken: String?, logger: Logger) {
+    public init(
+        hosts: [TartHost], labels: Set<String>, hostname: String, apiToken: String?,
+        reconciliation: RouterReconciliationConfiguration = .init(), logger: Logger
+    ) {
         self.hosts = hosts.sorted { lhs, rhs in
             lhs.priority < rhs.priority
         }
@@ -29,17 +34,11 @@ public final class RouterServer {
         self.labels = labels
         self.hostname = hostname
         self.apiToken = apiToken
-        jobHandler = .init(hosts: self.hosts, logger: logger)
-
-        Task {
-            await jobHandler.updateStatus(shouldSendJobs: false)
-        }
-
-        timer = .scheduledTimer(withTimeInterval: Constants.updateInterval, repeats: true) { [weak self] _ in
-            Task {
-                await self?.jobHandler.updateStatus()
-            }
-        }
+        self.reconciliation = reconciliation
+        let reconciler = reconciliation.enabled ? RouterGitHubReconciler(
+            hosts: self.hosts, labels: labels, logger: logger, apiToken: reconciliation.executorApiToken
+        ) : nil
+        jobHandler = .init(hosts: self.hosts, logger: logger, reconciler: reconciler, runnerLabels: labels)
     }
 
     public func run(port: Int) async throws {
@@ -129,7 +128,8 @@ public final class RouterServer {
                         headers[element.key] = element.value
                     },
                     bodyData: bodyData,
-                    pinnedHostname: nil
+                    pinnedHostname: nil,
+                    repository: webhookResponse.repository?.full_name
                 )
                 await jobHandler.handleJob(job: job)
                 return .init(statusCode: .ok)
@@ -140,10 +140,31 @@ public final class RouterServer {
 
         await registerManagementRoutes(on: server)
 
+        updateTask = Task { [jobHandler] in
+            while !Task.isCancelled {
+                await jobHandler.updateStatus()
+                do { try await Task.sleep(for: .seconds(Constants.updateInterval)) } catch { break }
+            }
+        }
+        if reconciliation.enabled {
+            reconciliationTask = Task { [jobHandler, reconciliation] in
+                while !Task.isCancelled {
+                    await jobHandler.reconcileGitHubJobs()
+                    do { try await Task.sleep(for: .seconds(reconciliation.intervalSeconds)) } catch { break }
+                }
+            }
+        }
+        defer {
+            updateTask?.cancel()
+            reconciliationTask?.cancel()
+        }
+
         try await server.run()
     }
 
     public func stop() async {
+        updateTask?.cancel()
+        reconciliationTask?.cancel()
         await server?.stop()
         server = nil
     }

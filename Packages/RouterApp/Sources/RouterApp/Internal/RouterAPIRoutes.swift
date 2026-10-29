@@ -141,7 +141,8 @@ extension RouterServer {
                 id: dispatchRequest.id,
                 labels: jobLabels,
                 pinnedHostname: dispatchRequest.host,
-                force: force
+                force: force,
+                repository: dispatchRequest.repository
             )
             switch outcome {
             case let .sent(hostname):
