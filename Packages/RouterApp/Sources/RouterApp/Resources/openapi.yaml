@@ -8,6 +8,15 @@ info:
 
     When an `apiToken` is configured in `~/tart-router.yaml`, every `/api/v1/*` endpoint except
     `/health`, `/openapi.yaml`, and `/docs` requires an `Authorization: Bearer <token>` header.
+
+
+    Automatic reconciliation is enabled by default. Configure `reconciliation.enabled`,
+    `reconciliation.intervalSeconds` (default 60), and optional shared
+    `reconciliation.executorApiToken` in the router YAML. Upgrade the router and executors
+    together and grant their GitHub App `Actions: read`. The router uses executor APIs for fresh
+    queued-job discovery and exact status checks; missing scan results or failed lookups never
+    imply completion. Confirmed completion removes tracking without cancelling VMs. The
+    executor API token is configuration-only and is never returned by this API.
   version: 0.25.0
 servers:
   - url: /api/v1
@@ -322,6 +331,9 @@ components:
           description: Hostname of the executor this job was dispatched to, if any.
         receivedAt: { type: string, format: date-time }
         sentAt: { type: [string, "null"], format: date-time }
+        repository:
+          type: [string, "null"]
+          description: Repository in owner/repo form, used for exact GitHub status reconciliation.
     RouterJobsResponse:
       type: object
       required: [jobs]
@@ -382,10 +394,14 @@ components:
           minItems: 1
           items: { type: string }
           description: >-
-            The job's GitHub labels, **verbatim**. These become the runner's `--labels`, so
-            reordering, filtering, or otherwise normalising them registers a runner GitHub is not
-            waiting on: the machine boots, idles, and the job stays queued while this endpoint
-            reports success. Copy the array straight from the job.
+            The job's complete GitHub label set, with values unchanged. These become the runner's
+            `--labels`; removing or changing required labels can leave the machine idle while
+            GitHub continues waiting. Copy the array straight from the job.
+        repository:
+          type: [string, "null"]
+          description: >-
+            Repository in owner/repo form. Include this so reconciliation can check the job's
+            exact GitHub status even after its run leaves the scanner's recent-run window.
         host:
           type: [string, "null"]
           description: >-

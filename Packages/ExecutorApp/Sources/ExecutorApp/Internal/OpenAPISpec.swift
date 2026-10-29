@@ -209,7 +209,9 @@ paths:
 
 
         Requires the GitHub App to hold the `Actions: read` permission. Without it every scan is
-        denied and the reason appears in `warnings`.
+        denied and the reason appears in `warnings`. Discovery is bounded by configured
+        repository and recent-run limits; jobs outside those windows may be omitted. Absence
+        from this response is never proof that a job completed.
       parameters:
         - name: matching
           in: query
@@ -225,7 +227,9 @@ paths:
         - name: refresh
           in: query
           required: false
-          description: Set to `true` to bypass the cache and force a fresh scan.
+          description: >-
+            Set to `true` to request a fresh scan. A failed refresh can still return an older
+            snapshot; check `scannedAt` before using results for automatic provisioning.
           schema: { type: string, enum: [ "true" ] }
       responses:
         "200":
@@ -242,6 +246,41 @@ paths:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
         "503":
           description: GitHub scanning is disabled or unconfigured (`github.scan.enabled`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+  /github/jobs/{id}:
+    get:
+      tags: [GitHub]
+      summary: Get a fresh GitHub job status
+      description: >-
+        Looks up this exact job using the executor's GitHub App credentials and its
+        `Actions: read` permission. Includes completed jobs outside the queued-job scanner's
+        recent-run window. Returns lookup failures as errors, never as completed jobs.
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+        - name: repository
+          in: query
+          required: true
+          description: Repository containing the job, in owner/repo form.
+          schema: { type: string, example: bludesign/tart }
+      responses:
+        "200":
+          description: Fresh state reported by GitHub for this job.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitHubJobStatusDTO" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "502":
+          description: >-
+            GitHub lookup failed, including missing jobs, denied access, unavailable responses,
+            or mismatched job data. No job state should be inferred from this error.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "503":
+          description: GitHub scanning is disabled or unconfigured.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
@@ -525,10 +564,9 @@ components:
           minItems: 1
           items: { type: string }
           description: >-
-            The job's GitHub labels, **verbatim**. These become the runner's `--labels`, so
-            reordering, filtering, or otherwise normalising them registers a runner GitHub is not
-            waiting on: the machine boots, idles, and the job stays queued while this endpoint
-            reports success. Copy the array straight from the job.
+            The job's complete GitHub label set, with values unchanged. These become the runner's
+            `--labels`; removing or changing required labels can leave the machine idle while
+            GitHub continues waiting. Copy the array straight from the job.
         force:
           type: [boolean, "null"]
           description: >-
@@ -554,6 +592,23 @@ components:
             - $ref: "#/components/schemas/DispatchSkipReason"
             - type: "null"
         message: { type: [string, "null"] }
+    GitHubJobStatusDTO:
+      type: object
+      required: [id, repository, status, labels]
+      properties:
+        id: { type: integer }
+        repository:
+          type: string
+          description: Repository containing the job, in owner/repo form.
+        status:
+          type: string
+          description: GitHub job status, such as queued, in_progress, or completed.
+        labels:
+          type: array
+          items: { type: string }
+        runnerName:
+          type: [string, "null"]
+          description: Runner assigned by GitHub, when available.
     GitHubQueuedJobDTO:
       type: object
       required: [id, runId, name, repository, labels, createdAt, matchesRunnerLabels]

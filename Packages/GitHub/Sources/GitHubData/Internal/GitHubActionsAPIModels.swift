@@ -26,9 +26,11 @@ struct GitHubInstallationRepositoriesPage: Decodable {
 }
 
 struct GitHubWorkflowRunsPage: Decodable {
+    let totalCount: Int?
     let workflowRuns: [GitHubWorkflowRun]
 
     enum CodingKeys: String, CodingKey {
+        case totalCount = "total_count"
         case workflowRuns = "workflow_runs"
     }
 }
@@ -40,7 +42,13 @@ struct GitHubWorkflowRun: Decodable {
 }
 
 struct GitHubJobsPage: Decodable {
+    let totalCount: Int?
     let jobs: [GitHubJob]
+
+    enum CodingKeys: String, CodingKey {
+        case totalCount = "total_count"
+        case jobs
+    }
 }
 
 struct GitHubJob: Decodable {
@@ -53,6 +61,7 @@ struct GitHubJob: Decodable {
     let htmlUrl: String?
     let createdAt: String?
     let startedAt: String?
+    let runnerName: String?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -64,6 +73,7 @@ struct GitHubJob: Decodable {
         case htmlUrl = "html_url"
         case createdAt = "created_at"
         case startedAt = "started_at"
+        case runnerName = "runner_name"
     }
 }
 

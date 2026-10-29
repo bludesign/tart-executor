@@ -139,6 +139,12 @@ extension ExecutorServer {
 
         // MARK: GitHub
 
+        await server.appendRoute("GET /api/v1/github/jobs/:id") { [weak self] request in
+            guard let self else { return .init(statusCode: .badGateway) }
+            if let denied = authorizationFailure(for: request) { return denied }
+            return await gitHubJobStatusResponse(for: request)
+        }
+
         await server.appendRoute("GET /api/v1/github/queued-jobs") { [weak self] request in
             guard let self else { return .init(statusCode: .badGateway) }
             if let denied = authorizationFailure(for: request) { return denied }

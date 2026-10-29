@@ -5,6 +5,7 @@ import TartCommon
 final class RouterPendingJob: Identifiable {
     let id: Int
     var workflowJob: WorkflowJob
+    var repository: String?
     let headers: [HTTPHeader: String]
     let bodyData: Data
     /// When set, only this executor is eligible. Set by a manual dispatch that names a host;
@@ -19,9 +20,10 @@ final class RouterPendingJob: Identifiable {
         }
     }
 
-    init(workflowJob: WorkflowJob, headers: [HTTPHeader: String], bodyData: Data, pinnedHostname: String?) {
+    init(workflowJob: WorkflowJob, headers: [HTTPHeader: String], bodyData: Data, pinnedHostname: String?, repository: String? = nil) {
         self.id = workflowJob.id
         self.workflowJob = workflowJob
+        self.repository = repository
         self.headers = headers
         self.bodyData = bodyData
         self.pinnedHostname = pinnedHostname

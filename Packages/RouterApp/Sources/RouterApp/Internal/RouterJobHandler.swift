@@ -15,7 +15,7 @@ actor RouterJobHandler {
         case errorSending
     }
 
-    private enum Constants {
+    enum Constants {
         // How long a host must continuously report fewer virtual machines than the number of
         // jobs attributed to it before those jobs are considered lost and requeued. Must be
         // longer than the delay between a virtual machine shutting down and GitHub delivering
@@ -28,10 +28,18 @@ actor RouterJobHandler {
     nonisolated let logger: Logger
     private let decoder = JSONDecoder()
     var jobs = [Int: RouterPendingJob]()
-    private var hosts: [TartHost]
+    let reconciler: (any RouterGitHubReconciling)?
+    let runnerLabels: Set<String>
+    let session: URLSession
+    var completedJobs = [Int: Date]()
+    var reconciledAt = [Int: Date]()
+    var isReconciling = false
+    var recoveryAttemptedAt = [Int: Date]()
+    var reconciledCompletedJobs = Set<Int>()
+    var hosts: [TartHost]
     private var isUpdatingStatus = false
     private var needsAnotherUpdate = false
-    private var hostDeficitSince = [ObjectIdentifier: Date]()
+    var hostDeficitSince = [ObjectIdentifier: Date]()
 
     var pendingJobs: Int {
         jobs.count
@@ -53,21 +61,35 @@ actor RouterJobHandler {
         hosts.reduce(0) { $0 + ($1.lastStatus != nil ? 1 : 0) }
     }
 
-    init(hosts: [TartHost], logger: Logger) {
+    init(hosts: [TartHost], logger: Logger, reconciler: (any RouterGitHubReconciling)? = nil, runnerLabels: Set<String> = [], session: URLSession = .shared) {
         self.hosts = hosts
         self.logger = logger
+        self.reconciler = reconciler
+        self.runnerLabels = runnerLabels
+        self.session = session
     }
 
     func handleJob(job newJob: RouterPendingJob) async {
         logger.info("Job Router Handle", job: newJob)
+
+        if newJob.workflowJob.action == .completed {
+            rememberCompletedJob(id: newJob.id)
+        }
 
         await updateStatus(shouldSendJobs: false)
 
         let job: RouterPendingJob
         switch newJob.workflowJob.action {
         case .queued, .inProgress:
+            guard completedJobs[newJob.id] == nil else {
+                logger.info("Job Router Ignored Event For Completed Job", job: newJob)
+                return
+            }
             if let existingJob = jobs[newJob.id] {
                 job = existingJob
+                if let repository = newJob.repository {
+                    job.repository = repository
+                }
             } else {
                 jobs[newJob.id] = newJob
                 job = newJob
@@ -79,6 +101,7 @@ actor RouterJobHandler {
             }
         case .completed:
             let removedJob = jobs.removeValue(forKey: newJob.id)
+            reconciledAt[newJob.id] = nil
             if let removedJob, removedJob.workflowJob.action == .inProgress {
                 // The job ran to completion. If it was never attributed to a host it ran on a
                 // virtual machine that is still attributed to another queued job; take over
@@ -114,7 +137,7 @@ actor RouterJobHandler {
                 group.addTask { [weak self] in
                     guard let self else { return }
                     do {
-                        try await Self.cancelJobsByLabels(host: host, labels: labels, logger: logger)
+                        try await Self.cancelJobsByLabels(host: host, labels: labels, logger: logger, session: session)
                     } catch {
                         logger.error("Executor API Job Cancel With Labels Error", host: host, labels: labels, error: error)
                     }
@@ -195,9 +218,11 @@ actor RouterJobHandler {
         guard let job = jobs.removeValue(forKey: id) else {
             return false
         }
+        rememberCompletedJob(id: id)
+        reconciledAt[id] = nil
         logger.info("Job Router Cancelled By Id", job: job)
         if let host = job.sentToHost {
-            try? await Self.cancelJobsByLabels(host: host, labels: job.workflowJob.labels, logger: logger)
+            try? await Self.cancelJobsByLabels(host: host, labels: job.workflowJob.labels, logger: logger, session: session)
         }
         return true
     }
@@ -209,13 +234,14 @@ actor RouterJobHandler {
             labels: job.workflowJob.labels.sorted(),
             sentToHost: job.sentToHost?.hostname,
             receivedAt: job.receivedAt,
-            sentAt: job.sentAt
+            sentAt: job.sentAt,
+            repository: job.repository
         )
     }
 }
 
-private extension RouterJobHandler {
-    static func sendJob(host: TartHost, job: RouterPendingJob, logger: Logger) async throws {
+extension RouterJobHandler {
+    static func sendJob(host: TartHost, job: RouterPendingJob, logger: Logger, session: URLSession) async throws {
         logger.info("Executor Send Job", job: job, host: host)
         var hostRequest = URLRequest(url: host.url.appending(path: "/router"))
         hostRequest.httpMethod = "POST"
@@ -223,13 +249,13 @@ private extension RouterJobHandler {
         job.headers.forEach { header, value in
             hostRequest.setValue(value, forHTTPHeaderField: header.rawValue)
         }
-        let (_, response) = try await URLSession.shared.data(for: hostRequest)
+        let (_, response) = try await session.data(for: hostRequest)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else {
             throw JobError.errorSending
         }
     }
 
-    static func cancelJobsByLabels(host: TartHost, labels: Set<String>, logger: Logger) async throws {
+    static func cancelJobsByLabels(host: TartHost, labels: Set<String>, logger: Logger, session: URLSession) async throws {
         var hostRequest = URLRequest(url: host.url.appending(path: "/cancel"))
         hostRequest.httpMethod = "POST"
         hostRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -238,7 +264,7 @@ private extension RouterJobHandler {
         let encoder = JSONEncoder()
         hostRequest.httpBody = try encoder.encode(cancelRequest)
 
-        let (_, response) = try await URLSession.shared.data(for: hostRequest)
+        let (_, response) = try await session.data(for: hostRequest)
         if (response as? HTTPURLResponse)?.statusCode != 200 {
             throw JobError.errorSending
         }
@@ -263,7 +289,7 @@ private extension RouterJobHandler {
         donorJob.sentToHost = nil
     }
 
-    func pollHostStatuses() async {
+    private func pollHostStatuses() async {
         await withTaskGroup(of: Void.self) { [weak self] group in
             guard let self else { return }
             await hosts.forEach { [weak self] host in
@@ -271,7 +297,7 @@ private extension RouterJobHandler {
                     guard let self else { return }
                     do {
                         let url = host.url.appending(path: "/status")
-                        let (data, _) = try await URLSession.shared.data(from: url)
+                        let (data, _) = try await session.data(from: url)
                         let status = try decoder.decode(TartHostStatus.self, from: data)
                         host.lastStatus = status
                     } catch {
@@ -283,102 +309,4 @@ private extension RouterJobHandler {
         }
     }
 
-    // A job stays attributed to a host even if the host lost it because the virtual machine
-    // could not be created, or the executor crashed or restarted. Executors report how many
-    // machines they are actually running; when a host keeps reporting fewer machines than the
-    // number of jobs attributed to it, the difference will never run, so clear the attribution
-    // of that many queued jobs to have them sent out again. The deficit must persist for a
-    // while before jobs are requeued because a completed job's webhook typically arrives a few
-    // seconds after its machine already shut down, which looks like a deficit as well.
-    func requeueLostJobs() {
-        let now = Date()
-        for host in hosts {
-            let hostKey = ObjectIdentifier(host)
-            guard let lastStatus = host.lastStatus else {
-                hostDeficitSince[hostKey] = nil
-                continue
-            }
-            let attributedJobs = jobs.values.filter { $0.sentToHost === host }
-            let lostJobs = attributedJobs.count - lastStatus.activeVirtualMachines
-            guard lostJobs > 0 else {
-                hostDeficitSince[hostKey] = nil
-                continue
-            }
-            guard let deficitSince = hostDeficitSince[hostKey] else {
-                hostDeficitSince[hostKey] = now
-                continue
-            }
-            guard now.timeIntervalSince(deficitSince) >= Constants.lostJobRequeueInterval else { continue }
-            hostDeficitSince[hostKey] = nil
-            // Only queued jobs can be requeued. An in-progress job whose machine died is
-            // GitHub's to fail; its completed webhook will remove it.
-            let queuedJobs = attributedJobs.filter { $0.workflowJob.action == .queued }
-            for job in queuedJobs.prefix(lostJobs) {
-                logger.error("Job Router Lost By Host", job: job, host: host)
-                job.sentToHost = nil
-            }
-        }
-    }
-
-    func sendQueuedJobs() async {
-        // Iterate over a snapshot: every send suspends this actor and webhooks can mutate
-        // `jobs` in the meantime, so each job is re-checked right before it is sent.
-        for job in jobs.values.sorted(by: { $0.receivedAt < $1.receivedAt }) {
-            guard jobs[job.id] === job, job.sentToHost == nil, job.workflowJob.action == .queued else { continue }
-            await sendQueuedJob(job)
-        }
-    }
-
-    func sendQueuedJob(_ job: RouterPendingJob) async {
-        var foundPerJobEligibleHost = false
-        var foundResourceCapacity = false
-        var foundVirtualMachineSlot = false
-        for host in hosts {
-            // The job may have completed or been attributed to a host while a previous send
-            // attempt was awaited.
-            guard jobs[job.id] === job, job.sentToHost == nil, job.workflowJob.action == .queued else { return }
-            guard let lastStatus = host.lastStatus else { continue }
-            let requirements = job.resourceRequirements(for: lastStatus)
-            guard job.hostCanRun(host, requirements: requirements) else { continue }
-            foundPerJobEligibleHost = true
-            guard lastStatus.resourceCapacity.canFit(requirements) else { continue }
-            foundResourceCapacity = true
-            guard lastStatus.activeVirtualMachines < lastStatus.virtualMachineLimit else { continue }
-            foundVirtualMachineSlot = true
-            do {
-                try await Self.sendJob(host: host, job: job, logger: logger)
-            } catch {
-                logger.error("Executor API Send Job Error", job: job, host: host, error: error)
-                continue
-            }
-            // The virtual machine now exists on the host no matter what happened to the job
-            // while the send was in flight.
-            var reservedStatus = lastStatus
-            reservedStatus.activeVirtualMachines += 1
-            reservedStatus.reserve(requirements)
-            host.lastStatus = reservedStatus
-            if jobs[job.id] === job, job.sentToHost == nil, job.workflowJob.action == .queued {
-                job.sentToHost = host
-            } else if jobs[job.id] !== job {
-                // The job finished while the send was in flight, so the label cancel that runs
-                // on completion has already passed and the machine that was just created would
-                // idle forever. Cancel it on the host it was sent to.
-                logger.error("Job Router Job Finished During Send", job: job, host: host)
-                try? await Self.cancelJobsByLabels(host: host, labels: job.workflowJob.labels, logger: logger)
-            } else {
-                // The job was attributed to another host or started while the send was in
-                // flight. The machine will pick up other queued work with these labels or be
-                // cancelled once the last job with them completes.
-                logger.error("Job Router Job Changed During Send", job: job, host: host)
-            }
-            return
-        }
-        if !foundPerJobEligibleHost {
-            logger.error("Job Router No Host Matches Per-Job Limits", job: job)
-        } else if !foundResourceCapacity {
-            logger.info("Job Router No Host Has Aggregate Resource Capacity", job: job)
-        } else if !foundVirtualMachineSlot {
-            logger.info("Job Router No Host Has Virtual Machine Capacity", job: job)
-        }
-    }
 }

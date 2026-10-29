@@ -83,7 +83,7 @@ github:
     maxRepositories: 200
     # Requests in flight at once. Raising this risks GitHub's secondary rate limits (optional)
     maxConcurrentRequests: 4
-    # Workflow runs fetched per repository, newest first (optional)
+    # Most recent workflow runs inspected per repository (optional, bounded to 100)
     runsPerRepository: 50
     # Wall-clock budget for one scan in seconds (optional)
     timeoutSeconds: 20
@@ -131,6 +131,15 @@ loggingEndpoint: http://10.0.1.50:8080/logs
 # When set, /api/v1/* (except /health, /openapi.yaml, /docs) requires the header
 # Authorization: Bearer <token>. When omitted the management API is open.
 apiToken: change-me-secret
+# Repair missed queued/completed webhooks using the executors' GitHub access (optional)
+reconciliation:
+  # Enabled by default. Upgrade both tart-router and tart-executor for automatic recovery.
+  enabled: true
+  # Delay between reconciliation passes, in seconds (optional, default 60)
+  intervalSeconds: 60
+  # Shared executor management API token, if the executors configure apiToken (optional).
+  # This authenticates calls to executors and is independent of the router's own apiToken.
+  executorApiToken: change-me-secret
 # Array of tart-executor hosts to forward Github action jobs to (required)
 hosts:
     # Hostname set in config for tart-executor (required)
@@ -173,15 +182,25 @@ do not block dispatch. For example, a 10-CPU / 28672-MB executor can use router 
 7. Select "Generate a private key". `tart-executor` will use this to send authorized requests to the API. The generated key should automatically be downloaded.
 8. Transfer the generated private key to your `tart-executor` machines and set the path in the config.
 
-#### Actions: read (required for queued-job scanning)
+#### Actions: read (required for scanning and automatic recovery)
 
-`GET /api/v1/github/queued-jobs` additionally needs the repository permission **`Actions` (Read)**, on top of the permissions above. Metadata read is already implicit and covers the repository listing.
+Queued-job scans, exact job-status lookups, and automatic recovery need the repository permission **`Actions` (Read)**, on top of the permissions above. Metadata read is already implicit and covers the repository listing.
 
 If you are adding this to an App that already exists, GitHub treats it as a permission update: request it in the App's settings, then an organization owner has to **approve it on the installation**. Until they do, every scan is denied with `Resource not accessible by integration`, and the endpoint reports that in `warnings` (it returns `200` with an empty `jobs` array, so read the warnings rather than concluding the queue is empty).
 
 ### Recovering a job that is stuck without a runner
 
-Occasionally GitHub reports a job as `queued` but no VM ever starts for it — a webhook delivery was missed, or the executor lost the job. The management API can find and fix these without any GitHub credentials of your own:
+The router automatically repairs missed webhooks, with reconciliation enabled by default. Upgrade both `tart-router` and the executors: the router uses an executor's GitHub App credentials through its management API, so GitHub credentials stay on the executors. Keep `github.scan.enabled: true` on a reachable executor and approve the App's `Actions: read` permission. If executor management APIs require a bearer token, set the shared token in the router's `reconciliation.executorApiToken`; this secret is not returned by settings or status APIs.
+
+Each pass requests a fresh queued-job scan, checks an unknown job's exact GitHub status, and queues it through the normal resource and duplicate guards. It also checks tracked jobs with known repositories and removes records GitHub explicitly reports as completed. A missing job in a scan, failed authentication, or a failed lookup never counts as completion. Reconciled completion removes tracking without cancelling VMs, because a matching runner may have picked up another job. Recently completed IDs are remembered so delayed webhooks cannot recreate them.
+
+Before provisioning a recovered job, the router checks every executor's job inventory. Jobs already owned by an executor are left there, including queued jobs waiting to retry VM startup. If any executor's inventory is unavailable, new recovery provisioning waits until ownership can be checked; exact status checks for tracked jobs can still run. This prevents a router restart from creating a duplicate runner on another host.
+
+Discovery remains bounded by `github.scan` repository, run, time, and rate-limit limits. If the recent-run page is full, the scanner also checks separate queued and in-progress run pages so newer completed runs cannot hide an older stuck job. Each extra page still uses `runsPerRepository`, and only the first 100 jobs of a run are inspected; other run states outside the recent page can also be missed. Read `warnings`, `truncated`, and `scannedAt` when diagnosing a scan. Even `refresh=true` may return an older snapshot after a failed refresh; automatic recovery rejects stale results.
+
+For jobs queued directly on an executor, a VM that fails or exits before the job starts is retried after 30 seconds. Completion or cancellation stops that retry, and replacement VMs still observe capacity limits.
+
+The management API also supports manual recovery without GitHub credentials of your own:
 
 ```bash
 # What is GitHub waiting on? `matching=all` includes jobs this executor cannot run, each
@@ -191,16 +210,27 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 ```
 
 ```bash
+# Check the exact job, including completed jobs outside the scanner's recent-run window.
+curl -s -H "Authorization: Bearer $TOKEN" \
+  'http://127.0.0.1:3250/api/v1/github/jobs/123456?repository=bludesign/tart' | jq
+```
+
+```bash
 # Start a VM for one. Pass the job's labels exactly as the scan reported them.
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"id":123456,"labels":["tartelet","ghcr.io/cirruslabs/macos-sequoia-xcode:latest"]}' \
   http://127.0.0.1:3250/api/v1/jobs/dispatch | jq
 ```
 
-Send it to the router instead (`http://127.0.0.1:3251/api/v1/jobs/dispatch`) to have it placed on whichever executor has capacity, optionally pinning one with `"host": "server-1"`.
+Send it to the router instead (`http://127.0.0.1:3251/api/v1/jobs/dispatch`) to have it placed on whichever executor has capacity, optionally pinning one with `"host": "server-1"`. Include `"repository": "bludesign/tart"` so the router can check its exact status later. Webhooks and automatic discovery supply this repository metadata automatically; older manual dispatches without it can only acquire it if a later scan finds the job.
 
-Two things to know about the labels: they are passed to the runner's `--labels` verbatim, so reordering or dropping any of them (including `cpu:`/`memory:`) registers a runner GitHub is not waiting on — the VM boots, idles, and the job stays queued. And `force` bypasses the already-tracked and capacity guards (deliberately over-committing past `numberOfVirtualMachines`), but never the guard against a VM that already exists for that job id; cancel the job first if you really want to replace its machine.
+Pass the complete label set, including `cpu:`/`memory:` labels, unchanged: these become the runner's registered labels. Removing or changing required labels can leave the VM idle while GitHub continues waiting. On the executor, `force` bypasses tracking and capacity guards, but never the guard against an existing VM for that job ID. On the router, `force` clears attribution and queues the job again; executor capacity guards still apply, and duplicate protection is per host.
 
+### Checking webhook ingress
+
+A successful HTTP status alone does not prove the service received a webhook. An interactive Cloudflare Access sign-in page can return `200` with `Content-Type: text/html`, causing GitHub to record success while the router receives nothing. In the GitHub App's recent deliveries, inspect the response headers and body, then correlate the delivery's job ID with service logs. After correcting ingress, redeliver affected events or let reconciliation recover queued jobs.
+
+Use a dedicated authenticated webhook path that GitHub deliveries can reach without interactive sign-in, while keeping management APIs protected. For example, an ingress proxy can [validate GitHub's signed webhook requests](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries) before forwarding them. Signature verification is not implemented by `tart-router` or `tart-executor` itself; configuring a GitHub webhook secret alone does not add verification here. Reconciliation does not change ingress or Cloudflare Access settings.
 
 ### Brew Service
 
@@ -245,6 +275,7 @@ Each service serves its own OpenAPI 3.1 spec and a browsable Redoc page:
 | POST | `/api/v1/jobs/cancel-all` | Cancel all active jobs |
 | POST | `/api/v1/jobs/dispatch` | Start a VM for a job (body `{"id":123,"labels":["..."],"force":false}`) |
 | GET | `/api/v1/github/queued-jobs` | GitHub Actions jobs waiting for a runner (`?matching=all`, `?refresh=true`) |
+| GET | `/api/v1/github/jobs/{id}` | Exact GitHub job status; requires `?repository=owner/repo`, including for completed jobs |
 | GET | `/api/v1/vms` | List local Tart VMs / images |
 | GET | `/api/v1/vms/{name}` | VM detail including IP |
 | DELETE | `/api/v1/vms/{name}` | Delete a VM |
@@ -261,7 +292,7 @@ Each service serves its own OpenAPI 3.1 spec and a browsable Redoc page:
 | GET | `/api/v1/jobs/{id}` | Job detail |
 | POST | `/api/v1/jobs/{id}/cancel` | Cancel one job (and on its host) |
 | POST | `/api/v1/jobs/cancel` | Cancel by labels across all hosts |
-| POST | `/api/v1/jobs/dispatch` | Queue and place a job (body `{"id":123,"labels":["..."],"host":null,"force":false}`) |
+| POST | `/api/v1/jobs/dispatch` | Queue and place a job (body `{"id":123,"labels":["..."],"repository":"owner/repo","host":null,"force":false}`) |
 | GET | `/api/v1/hosts` | List executors and their last-polled status |
 | GET | `/api/v1/hosts/{hostname}` | Executor detail |
 | POST | `/api/v1/hosts/refresh` | Force an immediate status re-poll |

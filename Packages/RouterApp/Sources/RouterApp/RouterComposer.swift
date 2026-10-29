@@ -30,6 +30,7 @@ public final class RouterComposer {
             labels: .init(labelsArray),
             hostname: environment.hostname,
             apiToken: environment.apiToken,
+            reconciliation: environment.reconciliation ?? .init(),
             logger: Self.logger(environment, subsystem: "RouterServer")
         )
     }
