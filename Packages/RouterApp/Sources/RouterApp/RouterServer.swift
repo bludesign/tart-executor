@@ -5,7 +5,7 @@ import LoggingDomain
 import TartCommon
 
 public final class RouterServer {
-    private let decoder = JSONDecoder()
+    private let decoder = JSONDecoder.api
     private var server: HTTPServer?
     let hosts: [TartHost]
     let labels: Set<String>
@@ -13,6 +13,8 @@ public final class RouterServer {
     private let logger: Logger
     let jobHandler: RouterJobHandler
     private var updateTask: Task<Void, Never>?
+    private var observationTask: Task<Void, Never>?
+    private let observationSource: RouterGitHubReconciler
     private var reconciliationTask: Task<Void, Never>?
     private let reconciliation: RouterReconciliationConfiguration
 
@@ -35,10 +37,14 @@ public final class RouterServer {
         self.hostname = hostname
         self.apiToken = apiToken
         self.reconciliation = reconciliation
-        let reconciler = reconciliation.enabled ? RouterGitHubReconciler(
+        let source = RouterGitHubReconciler(
             hosts: self.hosts, labels: labels, logger: logger, apiToken: reconciliation.executorApiToken
-        ) : nil
-        jobHandler = .init(hosts: self.hosts, logger: logger, reconciler: reconciler, runnerLabels: labels)
+        )
+        observationSource = source
+        jobHandler = .init(
+            hosts: self.hosts, logger: logger, reconciler: reconciliation.enabled ? source : nil,
+            runnerLabels: labels, executorApiToken: reconciliation.executorApiToken
+        )
     }
 
     public func run(port: Int) async throws {
@@ -112,7 +118,8 @@ public final class RouterServer {
                 let workflowJob = WorkflowJob(
                     id: webhookResponse.workflow_job.id,
                     action: webhookResponse.action,
-                    labels: webhookResponse.workflow_job.labels
+                    labels: webhookResponse.workflow_job.labels,
+                    github: webhookResponse.jobContext
                 )
                 guard labels.isSubset(of: workflowJob.labels) else {
                     logger.error("Workflow job skipped because of labels", parameters: [
@@ -131,6 +138,8 @@ public final class RouterServer {
                     pinnedHostname: nil,
                     repository: webhookResponse.repository?.full_name
                 )
+                let context = webhookResponse.jobContext
+                Task { [jobHandler] in await jobHandler.broadcastObservations([context]) }
                 await jobHandler.handleJob(job: job)
                 return .init(statusCode: .ok)
             } catch {
@@ -154,7 +163,16 @@ public final class RouterServer {
                 }
             }
         }
+        if !reconciliation.enabled {
+            observationTask = Task { [jobHandler, observationSource] in
+                while !Task.isCancelled {
+                    await jobHandler.refreshRunnerObservations(using: observationSource)
+                    do { try await Task.sleep(for: .seconds(60)) } catch { break }
+                }
+            }
+        }
         defer {
+            observationTask?.cancel()
             updateTask?.cancel()
             reconciliationTask?.cancel()
         }
@@ -163,6 +181,7 @@ public final class RouterServer {
     }
 
     public func stop() async {
+        observationTask?.cancel()
         updateTask?.cancel()
         reconciliationTask?.cancel()
         await server?.stop()

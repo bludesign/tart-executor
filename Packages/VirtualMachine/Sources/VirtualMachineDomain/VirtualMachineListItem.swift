@@ -15,6 +15,10 @@ public struct VirtualMachineListItem: Sendable, Equatable {
     public let sizeGB: Double?
     /// Provisioned disk size in gigabytes.
     public let diskGB: Double?
+    public let cpu: Int?
+    /// Configured memory in MiB, matching `tart get`.
+    public let memory: Int?
+    public let os: String?
 
     public init(
         name: String,
@@ -22,7 +26,8 @@ public struct VirtualMachineListItem: Sendable, Equatable {
         state: String? = nil,
         running: Bool? = nil,
         sizeGB: Double? = nil,
-        diskGB: Double? = nil
+        diskGB: Double? = nil,
+        cpu: Int? = nil, memory: Int? = nil, os: String? = nil
     ) {
         self.name = name
         self.source = source
@@ -30,6 +35,9 @@ public struct VirtualMachineListItem: Sendable, Equatable {
         self.running = running
         self.sizeGB = sizeGB
         self.diskGB = diskGB
+        self.cpu = cpu
+        self.memory = memory
+        self.os = os
     }
 }
 

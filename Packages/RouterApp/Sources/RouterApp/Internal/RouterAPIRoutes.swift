@@ -114,8 +114,17 @@ extension RouterServer {
             } catch {
                 return .jsonError("Invalid request body", statusCode: .badRequest)
             }
+            guard dispatchRequest.id > 0,
+                  dispatchRequest.github.map({ $0.workflowJobId == String(dispatchRequest.id) }) ?? true else {
+                return .jsonError("Invalid or mismatched job id", statusCode: .badRequest)
+            }
             guard !dispatchRequest.labels.isEmpty else {
                 return .jsonError("labels must not be empty", statusCode: .badRequest)
+            }
+
+            if let repository = dispatchRequest.repository, let contextRepository = dispatchRequest.github?.repository,
+               repository != contextRepository {
+                return .jsonError("Repository does not match job context", statusCode: .badRequest)
             }
 
             let jobLabels = Set(dispatchRequest.labels)
@@ -142,7 +151,8 @@ extension RouterServer {
                 labels: jobLabels,
                 pinnedHostname: dispatchRequest.host,
                 force: force,
-                repository: dispatchRequest.repository
+                repository: dispatchRequest.repository,
+                github: dispatchRequest.github
             )
             switch outcome {
             case let .sent(hostname):

@@ -42,15 +42,27 @@ extension ExecutorServer {
         } catch {
             return .jsonError("Invalid request body", statusCode: .badRequest)
         }
+        guard dispatchRequest.id > 0,
+              dispatchRequest.github.map({ $0.workflowJobId == String(dispatchRequest.id) }) ?? true else {
+            return .jsonError("Invalid or mismatched job id", statusCode: .badRequest)
+        }
         guard !dispatchRequest.labels.isEmpty else {
             return .jsonError("labels must not be empty", statusCode: .badRequest)
         }
 
+        var context = dispatchRequest.github ?? GitHubJobContext(workflowJobId: String(dispatchRequest.id))
+        if let repository = dispatchRequest.repository {
+            guard context.repository == nil || context.repository == repository else {
+                return .jsonError("Repository does not match job context", statusCode: .badRequest)
+            }
+            context.repository = repository
+        }
         let force = dispatchRequest.force ?? false
         let workflowJob = WorkflowJob(
             id: dispatchRequest.id,
             action: .queued,
-            labels: Set(dispatchRequest.labels)
+            labels: Set(dispatchRequest.labels),
+            github: context
         )
 
         let pendingJob: ExecutorPendingJob
@@ -170,7 +182,8 @@ extension ExecutorServer {
             labelMismatchReason: mismatchReason,
             imageName: plan?.imageName,
             cpu: plan?.cpu,
-            memory: plan?.memory
+            memory: plan?.memory,
+            github: job.details?.context
         )
     }
 

@@ -24,7 +24,8 @@ extension ExecutorServer {
                 repository: job.repository,
                 status: job.status,
                 labels: job.labels.sorted(),
-                runnerName: job.runnerName
+                runnerName: job.runnerName,
+                github: job.context
             ), encoder: apiEncoder)
         } catch {
             return .jsonError("Failed to look up GitHub job: \(error.localizedDescription)", statusCode: .badGateway)

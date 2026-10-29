@@ -150,6 +150,36 @@ final class GitHubScannerOverflowTests: XCTestCase {
         XCTAssertTrue(OverflowURLProtocol.requests.isEmpty)
     }
 
+    func testRunnerObservationsDoNotBecomeQueuedSchedulingDemand() async throws {
+        let recent = try runsJSON(ids: [7], status: "in_progress", total: 1)
+        let jobs = try JSONSerialization.data(withJSONObject: [
+            "total_count": 5,
+            "jobs": [
+                ["id": 1, "run_id": 7, "name": "Queued", "status": "queued", "labels": ["image"], "head_branch": "feature/metadata", "head_sha": "abc123", "run_attempt": 2],
+                ["id": 2, "run_id": 7, "name": "Running", "status": "in_progress", "labels": ["image"], "runner_name": "vm-two"],
+                ["id": 3, "run_id": 7, "name": "Finished", "status": "completed", "labels": ["image"], "runner_name": "vm-three", "conclusion": "success"],
+                ["id": 4, "run_id": 7, "name": "No runner", "status": "in_progress", "labels": ["image"]],
+                ["id": 5, "run_id": 7, "name": "Empty runner", "status": "completed", "labels": ["image"], "runner_name": ""]
+            ] as [[String: Any]]
+        ])
+        OverflowURLProtocol.install { request in
+            .ok(request.url?.path.hasSuffix("/jobs") == true ? jobs : recent)
+        }
+
+        let snapshot = try await makeScanner().queuedJobs(refresh: true)
+
+        XCTAssertEqual(snapshot.jobs.map(\.id), [1])
+        XCTAssertEqual(snapshot.jobs.first?.details?.headBranch, "feature/metadata")
+        XCTAssertEqual(snapshot.jobs.first?.details?.headSha, "abc123")
+        XCTAssertEqual(snapshot.jobs.first?.details?.runAttempt, 2)
+        XCTAssertNotNil(snapshot.jobs.first?.details?.observedAt)
+        XCTAssertEqual(snapshot.runnerJobs.map(\.id), [2, 3])
+        XCTAssertEqual(snapshot.runnerJobs.map(\.runnerName), ["vm-two", "vm-three"])
+        XCTAssertEqual(snapshot.runnerJobs.last?.conclusion, "success")
+        XCTAssertNotNil(snapshot.runnerJobs.first?.observedAt)
+        XCTAssertEqual(OverflowURLProtocol.requests.count, 2)
+    }
+
     private func scan(runsPerRepository: Int = 2) async -> GitHubActionsScanner.RepositoryScanResult {
         await makeScanner().scanRepository(
             "owner/repository", token: "installation-token", cache: [:],

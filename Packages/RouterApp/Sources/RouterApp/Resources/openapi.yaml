@@ -321,6 +321,8 @@ components:
       type: object
       required: [id, action, labels, receivedAt]
       properties:
+        github:
+          $ref: "#/components/schemas/GitHubJobContext"
         id: { type: integer }
         action: { $ref: "#/components/schemas/WorkflowAction" }
         labels:
@@ -386,6 +388,8 @@ components:
       type: object
       required: [id, labels]
       properties:
+        github:
+          $ref: "#/components/schemas/GitHubJobContext"
         id:
           type: integer
           description: GitHub workflow job id.
@@ -428,3 +432,34 @@ components:
             - $ref: "#/components/schemas/DispatchSkipReason"
             - type: "null"
         message: { type: [string, "null"] }
+
+    GitHubJobContext:
+      type: object
+      description: Display metadata and positive runner observations, independent of scheduling.
+      required: [workflowJobId]
+      properties:
+        workflowJobId: { type: string, description: Canonical decimal GitHub job identifier. }
+        workflowRunId: { type: [string, "null"] }
+        repository: { type: [string, "null"] }
+        name: { type: [string, "null"] }
+        workflowName: { type: [string, "null"] }
+        htmlUrl: { type: [string, "null"] }
+        runUrl: { type: [string, "null"] }
+        runTitle: { type: [string, "null"] }
+        event: { type: [string, "null"] }
+        actor: { type: [string, "null"] }
+        headBranch: { type: [string, "null"] }
+        headSha: { type: [string, "null"] }
+        status: { type: [string, "null"] }
+        conclusion: { type: [string, "null"] }
+        runnerName: { type: [string, "null"] }
+        source: { type: [string, "null"] }
+        runNumber: { type: [integer, "null"] }
+        runAttempt: { type: [integer, "null"] }
+        createdAt: { type: [string, "null"], format: date-time }
+        startedAt: { type: [string, "null"], format: date-time }
+        completedAt: { type: [string, "null"], format: date-time }
+        observedAt: { type: [string, "null"], format: date-time }
+        warnings:
+          type: [array, "null"]
+          items: { type: string }

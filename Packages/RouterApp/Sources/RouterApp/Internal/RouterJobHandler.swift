@@ -31,6 +31,7 @@ actor RouterJobHandler {
     let reconciler: (any RouterGitHubReconciling)?
     let runnerLabels: Set<String>
     let session: URLSession
+    let executorApiToken: String?
     var completedJobs = [Int: Date]()
     var reconciledAt = [Int: Date]()
     var isReconciling = false
@@ -61,12 +62,13 @@ actor RouterJobHandler {
         hosts.reduce(0) { $0 + ($1.lastStatus != nil ? 1 : 0) }
     }
 
-    init(hosts: [TartHost], logger: Logger, reconciler: (any RouterGitHubReconciling)? = nil, runnerLabels: Set<String> = [], session: URLSession = .shared) {
+    init(hosts: [TartHost], logger: Logger, reconciler: (any RouterGitHubReconciling)? = nil, runnerLabels: Set<String> = [], session: URLSession = .shared, executorApiToken: String? = nil) {
         self.hosts = hosts
         self.logger = logger
         self.reconciler = reconciler
         self.runnerLabels = runnerLabels
         self.session = session
+        self.executorApiToken = executorApiToken
     }
 
     func handleJob(job newJob: RouterPendingJob) async {
@@ -97,7 +99,13 @@ actor RouterJobHandler {
             // A redelivered or out-of-order "queued" webhook must not regress a job that
             // GitHub already reported as in progress, or the job would be sent out again.
             if !(job.workflowJob.action == .inProgress && newJob.workflowJob.action == .queued) {
-                job.workflowJob = newJob.workflowJob
+                let context = newJob.workflowJob.github.map { incoming in
+                    job.workflowJob.github.map { $0.merging(incoming) } ?? incoming
+                } ?? job.workflowJob.github
+                job.workflowJob = WorkflowJob(
+                    id: newJob.id, action: newJob.workflowJob.action,
+                    labels: newJob.workflowJob.labels, github: context
+                )
             }
         case .completed:
             let removedJob = jobs.removeValue(forKey: newJob.id)
@@ -235,7 +243,8 @@ actor RouterJobHandler {
             sentToHost: job.sentToHost?.hostname,
             receivedAt: job.receivedAt,
             sentAt: job.sentAt,
-            repository: job.repository
+            repository: job.repository,
+            github: job.workflowJob.github
         )
     }
 }
@@ -245,10 +254,19 @@ extension RouterJobHandler {
         logger.info("Executor Send Job", job: job, host: host)
         var hostRequest = URLRequest(url: host.url.appending(path: "/router"))
         hostRequest.httpMethod = "POST"
-        hostRequest.httpBody = job.bodyData
+        var payload = (try? JSONDecoder.api.decode(WebhookResponse.self, from: job.bodyData))?.workflow_job
+            ?? .init(id: job.id, labels: job.workflowJob.labels)
+        payload.github = job.workflowJob.github
+        hostRequest.httpBody = try JSONEncoder.api.encode(WebhookResponse(
+            action: .queued, workflow_job: payload,
+            repository: job.repository.map { .init(fullName: $0) }
+        ))
         job.headers.forEach { header, value in
-            hostRequest.setValue(value, forHTTPHeaderField: header.rawValue)
+            if header.rawValue.lowercased() != "content-length" {
+                hostRequest.setValue(value, forHTTPHeaderField: header.rawValue)
+            }
         }
+        hostRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let (_, response) = try await session.data(for: hostRequest)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else {
             throw JobError.errorSending

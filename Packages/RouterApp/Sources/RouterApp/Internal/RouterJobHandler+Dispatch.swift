@@ -19,7 +19,7 @@ extension RouterJobHandler {
     /// `force` re-places a job the router already tracks, which clears its host attribution. Only
     /// safe once the caller has confirmed no executor holds a machine for the job — the executors'
     /// duplicate guards are per-host and cannot see each other.
-    func dispatch(id: Int, labels: Set<String>, pinnedHostname: String?, force: Bool, repository: String? = nil) async -> RouterDispatchOutcome {
+    func dispatch(id: Int, labels: Set<String>, pinnedHostname: String?, force: Bool, repository: String? = nil, github: GitHubJobContext? = nil) async -> RouterDispatchOutcome {
         if completedJobs[id] != nil, !force {
             return .skippedAlreadyTracked(sentToHost: nil, action: .completed)
         }
@@ -31,14 +31,18 @@ extension RouterJobHandler {
             )
         }
 
-        let workflowJob = WorkflowJob(id: id, action: .queued, labels: labels)
+        var context = github ?? GitHubJobContext(workflowJobId: String(id))
+        context.repository = context.repository ?? repository
+        let workflowJob = WorkflowJob(id: id, action: .queued, labels: labels, github: context)
         let bodyData: Data
         do {
             // The same body a GitHub webhook would have delivered, so the executor sees nothing
             // unusual about a dispatched job.
-            bodyData = try JSONEncoder().encode(WebhookResponse(
+            var jobPayload = WebhookResponse.WorkflowJobResponse(id: id, labels: labels)
+            jobPayload.github = context
+            bodyData = try JSONEncoder.api.encode(WebhookResponse(
                 action: .queued,
-                workflow_job: WebhookResponse.WorkflowJobResponse(id: id, labels: labels),
+                workflow_job: jobPayload,
                 repository: repository.map { .init(fullName: $0) }
             ))
         } catch {

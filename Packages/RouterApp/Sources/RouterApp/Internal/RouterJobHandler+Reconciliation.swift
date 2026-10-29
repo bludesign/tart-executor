@@ -23,6 +23,8 @@ extension RouterJobHandler {
             logger.error("Job Router Reconciliation Scan Failed", error: error)
         }
 
+        var runnerObservations = snapshot?.runnerJobs ?? []
+
         var ownership: [String: [ExecutorJobDTO]]?
         do {
             let result = try await reconciler.executorJobs()
@@ -66,7 +68,9 @@ extension RouterJobHandler {
                     continue
                 }
                 guard status.status == "queued", runnerLabels.isSubset(of: Set(status.labels)) else { continue }
-                let workflowJob = WorkflowJob(id: status.id, action: .queued, labels: Set(status.labels))
+                let workflowJob = WorkflowJob(
+                    id: status.id, action: .queued, labels: Set(status.labels), github: status.github ?? queued.github
+                )
                 let payload = WebhookResponse(
                     action: .queued,
                     workflow_job: .init(id: status.id, labels: workflowJob.labels),
@@ -75,7 +79,7 @@ extension RouterJobHandler {
                 let job = RouterPendingJob(
                     workflowJob: workflowJob,
                     headers: [.contentType: "application/json"],
-                    bodyData: try JSONEncoder().encode(payload),
+                    bodyData: try JSONEncoder.api.encode(payload),
                     pinnedHostname: nil,
                     repository: status.repository
                 )
@@ -98,13 +102,20 @@ extension RouterJobHandler {
             do {
                 let status = try await reconciler.job(id: job.id, repository: repository)
                 guard jobs[job.id] === job else { continue }
+                if let context = status.github { runnerObservations.append(context) }
                 applyGitHubStatus(status, to: job, ownership: ownership)
             } catch {
                 logger.error("Job Router Reconciliation Status Failed", job: job, error: error)
             }
         }
 
-        if !Task.isCancelled { await updateStatus() }
+        if !Task.isCancelled {
+            if !runnerObservations.isEmpty {
+                let observations = runnerObservations
+                Task { await self.broadcastObservations(observations) }
+            }
+            await updateStatus()
+        }
     }
 
     func rememberCompletedJob(id: Int, cancelMachines: Bool = true) {
@@ -124,6 +135,12 @@ extension RouterJobHandler {
 
     private func applyGitHubStatus(_ status: GitHubJobStatusDTO, to job: RouterPendingJob, ownership: [String: [ExecutorJobDTO]]?) {
         guard status.id == job.id, status.repository == job.repository else { return }
+        if let context = status.github {
+            let merged = job.workflowJob.github.map { $0.merging(context) } ?? context
+            job.workflowJob = WorkflowJob(
+                id: job.id, action: job.workflowJob.action, labels: job.workflowJob.labels, github: merged
+            )
+        }
         switch status.status {
         case "completed":
             jobs[job.id] = nil
@@ -133,7 +150,7 @@ extension RouterJobHandler {
             // bookkeeping without cancelling runners by their original job ID or labels.
             logger.info("Job Router Reconciled Completed Job", job: job)
         case "in_progress":
-            job.workflowJob = WorkflowJob(id: job.id, action: .inProgress, labels: job.workflowJob.labels)
+            job.workflowJob = WorkflowJob(id: job.id, action: .inProgress, labels: job.workflowJob.labels, github: job.workflowJob.github)
             if let runnerName = status.runnerName,
                let host = hosts.first(where: { host in
                    ownership?[host.hostname]?.contains { $0.vmName == runnerName } == true

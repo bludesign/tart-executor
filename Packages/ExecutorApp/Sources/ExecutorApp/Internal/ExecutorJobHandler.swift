@@ -11,6 +11,7 @@ struct ActiveJob {
     let memory: Int?
     let vmName: String
     let startedAt: Date
+    let imageName: String
 }
 
 actor ExecutorJobHandler {
@@ -22,10 +23,15 @@ actor ExecutorJobHandler {
     var activeJobs = [UUID: ActiveJob]()
     var inProgressJobs = [Int: ExecutorPendingJob]()
     var pendingJobs = [Int: ExecutorPendingJob]()
+    var metadataWaitingRefreshCursor = 0
+    var metadataRefreshCursor = 0
+    var jobContexts = [Int: GitHubJobContext]()
+    var createdJobIDs = [String: Int]()
+    var assignedJobs = [String: GitHubJobContext]()
     var pendingJobRetries = [Int: PendingJobRetry]()
     let waitForPendingJobRetry: @Sendable () async throws -> Void
     nonisolated private let routerUrl: String?
-    nonisolated private let virtualMachineProvider: VirtualMachineProvider
+    nonisolated let virtualMachineProvider: VirtualMachineProvider
     nonisolated let logger: Logger
 
     var jobStatus: JobStatus {
@@ -64,6 +70,11 @@ actor ExecutorJobHandler {
     }
 
     func handle(pendingJob: ExecutorPendingJob) -> Bool {
+        defer { pruneContexts() }
+        if let context = pendingJob.workflowJob.github {
+            rememberContext(context)
+            observeJob(context)
+        }
         switch pendingJob.action {
         case .routerStart:
             return handleRouterStart(pendingJob: pendingJob)
@@ -82,6 +93,7 @@ actor ExecutorJobHandler {
     }
 
     func cancelAll() {
+        defer { pruneContexts() }
         for retry in pendingJobRetries.values {
             retry.task.cancel()
         }
@@ -94,6 +106,7 @@ actor ExecutorJobHandler {
 
     @discardableResult
     func cancelJobsByLabels(_ labels: Set<String>) -> Int {
+        defer { pruneContexts() }
         let pendingIds = pendingJobs.values.filter { $0.workflowJob.labels == labels }.map(\.id)
         for id in pendingIds {
             cancelPendingJobRetry(id: id)
@@ -140,11 +153,12 @@ actor ExecutorJobHandler {
                 didStart: pending?.didStart ?? true,
                 cpu: pending?.cpu ?? vm?.job.cpu,
                 memory: pending?.memory ?? vm?.job.memory,
-                imageName: pending?.imageName,
+                imageName: pending?.imageName ?? vm?.job.imageName,
                 vmName: vm?.job.vmName,
                 vmUUID: vm?.uuid.uuidString,
                 queuedAt: pending?.queuedAt,
-                startedAt: vm?.job.startedAt
+                startedAt: vm?.job.startedAt,
+                github: jobContexts[id] ?? pending?.workflowJob.github
             )
         }
 
@@ -169,6 +183,7 @@ actor ExecutorJobHandler {
     /// pending/in-progress queues. Returns whether anything was cancelled.
     @discardableResult
     func cancel(jobId: Int) -> Bool {
+        defer { pruneContexts() }
         cancelPendingJobRetry(id: jobId)
         var cancelled = false
         for (_, job) in activeJobs where job.jobId == jobId {
@@ -188,7 +203,7 @@ actor ExecutorJobHandler {
     }
 }
 
-private extension ExecutorJobHandler {
+extension ExecutorJobHandler {
     func handleRouterStart(pendingJob: ExecutorPendingJob) -> Bool {
         let isAlreadyRunning = activeJobs.values.contains { $0.jobId == pendingJob.id }
         if isAlreadyRunning {
@@ -247,6 +262,7 @@ private extension ExecutorJobHandler {
         logger.info("Job Handle Completed", pendingJob: pendingJob)
         let removedInProgressJob = inProgressJobs.removeValue(forKey: pendingJob.id)
         let removedPendingJob = pendingJobs.removeValue(forKey: pendingJob.id)
+        pruneContexts()
         guard removedInProgressJob != nil || removedPendingJob != nil else {
             return
         }
@@ -292,6 +308,7 @@ private extension ExecutorJobHandler {
         // Cancellation cleanup and the VM task can both finish. Only the first removal may
         // release capacity or schedule a replacement.
         guard let activeJob = activeJobs.removeValue(forKey: uuid) else { return }
+        pruneContexts()
         if !activeJob.task.isCancelled, let pendingJob = pendingJobs[activeJob.jobId],
            inProgressJobs[activeJob.jobId] == nil {
             schedulePendingJobRetry(pendingJob)
@@ -313,88 +330,5 @@ private extension ExecutorJobHandler {
                 LogParameterKey.routerUrl: routerUrl.absoluteString
             ])
         }
-    }
-}
-
-// Internal so `ExecutorJobHandler+Dispatch` can start a machine for a job the executor
-// never received a webhook for.
-extension ExecutorJobHandler {
-    /// Creates and boots a machine for the job. Returns the machine's name. The assignment to
-    /// `activeJobs` happens synchronously before returning, which is what makes the
-    /// check-then-start in `dispatch` safe.
-    @discardableResult
-    func start(pendingJob: ExecutorPendingJob) -> String {
-        if let existingJob = activeJobs.values.first(where: { $0.jobId == pendingJob.id }) {
-            return existingJob.vmName
-        }
-        cancelPendingJobRetry(id: pendingJob.id)
-        logger.info("Job Executor Starting", pendingJob: pendingJob)
-        pendingJob.didStart = true
-        let runnerLabels = pendingJob.workflowJob.labels.joined(separator: ",")
-        let uuid = UUID()
-        let vmName = "\(ExecutorConstants.virtualMachineNamePrefix)\(pendingJob.workflowJob.id)-\(uuid.uuidString)"
-        let task = Task { [weak self, logger, virtualMachineProvider] in
-            do {
-                logger.info("Virtual Machine Creating", pendingJob: pendingJob, uuid: uuid)
-                let virtualMachine = try await virtualMachineProvider.createVirtualMachine(
-                    imageName: pendingJob.imageName,
-                    name: vmName,
-                    runnerLabels: runnerLabels,
-                    isInsecure: pendingJob.isInsecure,
-                    cpu: pendingJob.cpu,
-                    memory: pendingJob.memory
-                )
-
-                func delete(error runError: Error? = nil) async throws {
-                    do {
-                        try await virtualMachine.delete()
-                        logger.info("Virtual Machine Deleted", pendingJob: pendingJob, virtualMachine: virtualMachine, uuid: uuid, runError: runError)
-                    } catch {
-                        logger.error("Virtual Machine Deleting Error", pendingJob: pendingJob, virtualMachine: virtualMachine, uuid: uuid, runError: runError, deleteError: error)
-                        throw error
-                    }
-                }
-
-                try await withTaskCancellationHandler {
-                    logger.info("Virtual Machine Starting", pendingJob: pendingJob, virtualMachine: virtualMachine, uuid: uuid)
-                    do {
-                        try await virtualMachine.start(netBridgedAdapter: pendingJob.netBridgedAdapter, isHeadless: pendingJob.isHeadless)
-                        logger.info("Virtual Machine Stopped", pendingJob: pendingJob, virtualMachine: virtualMachine, uuid: uuid)
-                        try await delete()
-                    } catch {
-                        logger.error("Virtual Machine Stopping Error", pendingJob: pendingJob, virtualMachine: virtualMachine, uuid: uuid, error: error)
-                        try await delete(error: error)
-                        throw error
-                    }
-                } onCancel: {
-                    Task.detached(priority: .high) {
-                        logger.info("Virtual Machine Cancelling", pendingJob: pendingJob, virtualMachine: virtualMachine, uuid: uuid)
-                        do {
-                            try await virtualMachine.delete()
-                        } catch {
-                            logger.error("Virtual Machine Cancel Deleting Error", pendingJob: pendingJob, virtualMachine: virtualMachine, uuid: uuid, error: error)
-                            throw error
-                        }
-                        await self?.remove(uuid: uuid)
-                    }
-                }
-
-                await self?.remove(uuid: uuid)
-            } catch {
-                logger.error("Job Executor Execution Error", pendingJob: pendingJob, uuid: uuid, error: error)
-                await self?.remove(uuid: uuid)
-            }
-        }
-
-        activeJobs[uuid] = .init(
-            jobId: pendingJob.id,
-            labels: pendingJob.workflowJob.labels,
-            task: task,
-            cpu: pendingJob.cpu,
-            memory: pendingJob.memory,
-            vmName: vmName,
-            startedAt: Date()
-        )
-        return vmName
     }
 }

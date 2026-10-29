@@ -34,6 +34,7 @@ public actor GitHubActionsScanner: GitHubQueuedJobsProviding {
     /// values only, so they never serialise on this actor.
     struct RepositoryScanResult: Sendable {
         var jobs: [GitHubQueuedJob] = []
+        var runnerJobs: [GitHubJobStatus] = []
         var cacheUpdates: [String: CachedResponse] = [:]
         var warnings: [String] = []
         var truncated = false
@@ -57,6 +58,14 @@ public actor GitHubActionsScanner: GitHubQueuedJobsProviding {
     private var responseCache = [String: CachedResponse]()
     private var snapshot: GitHubQueuedJobsSnapshot?
     private var inFlight: Task<GitHubQueuedJobsSnapshot, Error>?
+    var detailCache = [String: (value: GitHubJobStatus, fetchedAt: Date)]()
+    var detailTasks = [String: Task<GitHubJobStatus, Error>]()
+    var detailResponses = [String: CachedResponse]()
+    var runDetailCache = [String: (value: GitHubWorkflowRunDetails, fetchedAt: Date)]()
+    var runDetailTasks = [String: Task<GitHubWorkflowRunDetails, Error>]()
+    var displayRateLimit: (value: RateLimit, checkedAt: Date)?
+    var activeDisplayRequests = 0
+    var displayRequestWaiters = [CheckedContinuation<Void, Never>]()
 
     public init(
         client: GitHubClient,
@@ -97,18 +106,13 @@ public actor GitHubActionsScanner: GitHubQueuedJobsProviding {
         // Recovery decisions must use a current answer. In particular, a failed lookup must
         // never fall back to a previous queued/completed response or a partial scan snapshot.
         let outcome = await fetch(GitHubJob.self, url: url, token: token, cache: [:])
+        if let rateLimit = outcome.rateLimit { displayRateLimit = (rateLimit, Date()) }
         if outcome.tokenRejected { invalidateToken() }
         guard let job = outcome.value else {
             throw GitHubJobLookupError.unavailable(outcome.warning ?? "GitHub job status is unavailable")
         }
         guard job.id == id else { throw GitHubJobLookupError.mismatchedJobId }
-        return GitHubJobStatus(
-            id: job.id,
-            repository: repository,
-            status: job.status,
-            labels: Set(job.labels),
-            runnerName: job.runnerName
-        )
+        return job.asStatus(repository: repository)
     }
 }
 
@@ -175,6 +179,7 @@ private extension GitHubActionsScanner {
         let window = min(configuration.maxConcurrentRequests, max(repositories.count, 1))
 
         var jobs = [GitHubQueuedJob]()
+        var runnerJobs = [GitHubJobStatus]()
         var cacheUpdates = [String: CachedResponse]()
         var latestRateLimit: RateLimit?
         var scanned = 0
@@ -203,6 +208,7 @@ private extension GitHubActionsScanner {
             while let result = await group.next() {
                 scanned += 1
                 jobs.append(contentsOf: result.jobs)
+                runnerJobs.append(contentsOf: result.runnerJobs)
                 cacheUpdates.merge(result.cacheUpdates) { _, new in new }
                 warnings.append(contentsOf: result.warnings)
                 if result.truncated { truncated = true }
@@ -220,6 +226,7 @@ private extension GitHubActionsScanner {
         if tokenRejected {
             invalidateToken()
         }
+        if let latestRateLimit { displayRateLimit = (latestRateLimit, Date()) }
         if exhausted {
             truncated = true
             warnings.append("Stopped early: fewer than \(configuration.rateLimitFloor) GitHub API requests remained.")
@@ -237,7 +244,8 @@ private extension GitHubActionsScanner {
             truncated: truncated,
             warnings: dedupedWarnings(warnings),
             rateLimitRemaining: latestRateLimit?.remaining,
-            rateLimitResetAt: latestRateLimit?.resetAt
+            rateLimitResetAt: latestRateLimit?.resetAt,
+            runnerJobs: runnerJobs.sorted { $0.id < $1.id }
         )
         logger.info("GitHub Scan Completed", parameters: [
             GitHubScanLogKey.repositoryCount: "\(scanned)",
@@ -259,7 +267,7 @@ private extension GitHubActionsScanner {
 
 // MARK: - Repository discovery
 
-private extension GitHubActionsScanner {
+extension GitHubActionsScanner {
     func repositoryNames(token: String) async throws -> (names: [String], truncated: Bool) {
         if let cachedRepositories, Date().timeIntervalSince(cachedRepositories.fetchedAt) < configuration.repositoryCacheSeconds {
             return (cachedRepositories.value, false)

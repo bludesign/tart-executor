@@ -10,8 +10,9 @@ public struct RouterJobDTO: Codable {
     public let receivedAt: Date
     public let sentAt: Date?
     public let repository: String?
+    public let github: GitHubJobContext?
 
-    public init(id: Int, action: WorkflowAction, labels: [String], sentToHost: String?, receivedAt: Date, sentAt: Date?, repository: String? = nil) {
+    public init(id: Int, action: WorkflowAction, labels: [String], sentToHost: String?, receivedAt: Date, sentAt: Date?, repository: String? = nil, github: GitHubJobContext? = nil) {
         self.id = id
         self.action = action
         self.labels = labels
@@ -19,6 +20,7 @@ public struct RouterJobDTO: Codable {
         self.receivedAt = receivedAt
         self.sentAt = sentAt
         self.repository = repository
+        self.github = github
     }
 }
 
@@ -45,13 +47,15 @@ public struct RouterDispatchRequest: Codable {
     public let force: Bool?
     /// `owner/repo`, used to verify lifecycle state during automatic recovery.
     public let repository: String?
+    public let github: GitHubJobContext?
 
-    public init(id: Int, labels: [String], host: String?, force: Bool?, repository: String? = nil) {
+    public init(id: Int, labels: [String], host: String?, force: Bool?, repository: String? = nil, github: GitHubJobContext? = nil) {
         self.id = id
         self.labels = labels
         self.host = host
         self.force = force
         self.repository = repository
+        self.github = github
     }
 }
 

@@ -77,6 +77,12 @@ extension GitHubActionsScanner {
                 result.warnings.append("Only the first 100 jobs for run \(run.id) in \(repository) were scanned.")
             }
 
+            // Assignment observations share these reads but never enter the queued-job demand.
+            for job in jobsPage.jobs where job.status == "in_progress" || job.status == "completed" {
+                guard let runnerName = job.runnerName, !runnerName.isEmpty else { continue }
+                result.runnerJobs.append(job.asStatus(repository: repository))
+            }
+
             // `waiting` (deployment approval) and `pending` (concurrency slot) are excluded
             // deliberately: neither is unblocked by starting a machine.
             for job in jobsPage.jobs where job.status == "queued" {
@@ -89,7 +95,8 @@ extension GitHubActionsScanner {
                     htmlURL: job.htmlUrl,
                     labels: Set(job.labels),
                     createdAt: GitHubDateParser.date(from: job.createdAt) ?? Date(),
-                    startedAt: GitHubDateParser.date(from: job.startedAt)
+                    startedAt: GitHubDateParser.date(from: job.startedAt),
+                    details: job.asStatus(repository: repository)
                 ))
             }
         }

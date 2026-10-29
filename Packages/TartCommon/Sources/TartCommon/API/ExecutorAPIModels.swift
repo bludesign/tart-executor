@@ -25,6 +25,7 @@ public struct ExecutorJobDTO: Codable {
     public let vmUUID: String?
     public let queuedAt: Date?
     public let startedAt: Date?
+    public let github: GitHubJobContext?
 
     public init(
         id: Int,
@@ -38,7 +39,8 @@ public struct ExecutorJobDTO: Codable {
         vmName: String?,
         vmUUID: String?,
         queuedAt: Date?,
-        startedAt: Date?
+        startedAt: Date?,
+        github: GitHubJobContext? = nil
     ) {
         self.id = id
         self.action = action
@@ -52,6 +54,7 @@ public struct ExecutorJobDTO: Codable {
         self.vmUUID = vmUUID
         self.queuedAt = queuedAt
         self.startedAt = startedAt
+        self.github = github
     }
 }
 
@@ -89,11 +92,15 @@ public struct ExecutorDispatchRequest: Codable {
     public let labels: [String]
     /// Bypasses the already-tracked and capacity guards. Never bypasses the existing-VM guard.
     public let force: Bool?
+    public let repository: String?
+    public let github: GitHubJobContext?
 
-    public init(id: Int, labels: [String], force: Bool?) {
+    public init(id: Int, labels: [String], force: Bool?, repository: String? = nil, github: GitHubJobContext? = nil) {
         self.id = id
         self.labels = labels
         self.force = force
+        self.repository = repository
+        self.github = github
     }
 }
 
@@ -154,6 +161,7 @@ public struct GitHubQueuedJobDTO: Codable {
     public let imageName: String?
     public let cpu: Int?
     public let memory: Int?
+    public let github: GitHubJobContext?
 
     public init(
         id: Int,
@@ -168,7 +176,8 @@ public struct GitHubQueuedJobDTO: Codable {
         labelMismatchReason: String?,
         imageName: String?,
         cpu: Int?,
-        memory: Int?
+        memory: Int?,
+        github: GitHubJobContext? = nil
     ) {
         self.id = id
         self.runId = runId
@@ -183,6 +192,7 @@ public struct GitHubQueuedJobDTO: Codable {
         self.imageName = imageName
         self.cpu = cpu
         self.memory = memory
+        self.github = github
     }
 }
 
@@ -190,6 +200,7 @@ public struct GitHubQueuedJobDTO: Codable {
 /// populated rather than an error, so a degraded scan is never mistaken for an empty queue.
 public struct GitHubQueuedJobsResponse: Codable {
     public let hostname: String
+    public let runnerJobs: [GitHubJobContext]?
     public let jobs: [GitHubQueuedJobDTO]
     public let scannedAt: Date
     public let repositoriesScanned: Int
@@ -207,9 +218,11 @@ public struct GitHubQueuedJobsResponse: Codable {
         truncated: Bool,
         warnings: [String],
         rateLimitRemaining: Int?,
-        rateLimitResetAt: Date?
+        rateLimitResetAt: Date?,
+        runnerJobs: [GitHubJobContext]? = nil
     ) {
         self.hostname = hostname
+        self.runnerJobs = runnerJobs
         self.jobs = jobs
         self.scannedAt = scannedAt
         self.repositoriesScanned = repositoriesScanned
@@ -273,56 +286,6 @@ public struct ExecutorStatusResponse: Codable {
         self.diskTotalBytes = diskTotalBytes
         self.diskFreeBytes = diskFreeBytes
         self.diskUsedBytes = diskUsedBytes
-    }
-}
-
-/// A Tart virtual machine / local image as seen by `tart list`. The fields after
-/// `managedByExecutor` come from `tart list --format json` and are absent on older Tart builds.
-public struct VirtualMachineDTO: Codable {
-    public let name: String
-    public let ipAddress: String?
-    public let jobId: Int?
-    public let managedByExecutor: Bool
-    /// Lifecycle state reported by Tart, e.g. `running`, `stopped`, `suspended`.
-    public let state: String?
-    /// Whether the machine is currently running.
-    public let running: Bool?
-    /// Actual on-disk usage in gigabytes.
-    public let sizeGB: Double?
-    /// Provisioned disk size in gigabytes.
-    public let diskGB: Double?
-    /// Origin as reported by Tart, e.g. `local`.
-    public let source: String?
-
-    public init(
-        name: String,
-        ipAddress: String?,
-        jobId: Int?,
-        managedByExecutor: Bool,
-        state: String? = nil,
-        running: Bool? = nil,
-        sizeGB: Double? = nil,
-        diskGB: Double? = nil,
-        source: String? = nil
-    ) {
-        self.name = name
-        self.ipAddress = ipAddress
-        self.jobId = jobId
-        self.managedByExecutor = managedByExecutor
-        self.state = state
-        self.running = running
-        self.sizeGB = sizeGB
-        self.diskGB = diskGB
-        self.source = source
-    }
-}
-
-/// Response for `GET /api/v1/vms`.
-public struct VirtualMachineListResponse: Codable {
-    public let virtualMachines: [VirtualMachineDTO]
-
-    public init(virtualMachines: [VirtualMachineDTO]) {
-        self.virtualMachines = virtualMachines
     }
 }
 

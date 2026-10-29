@@ -192,6 +192,26 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ExecutorDispatchResponse"
+  /github/job-observations:
+    post:
+      tags: [GitHub]
+      summary: Observe confirmed runner jobs without scheduling or cancelling work
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [jobs]
+              properties:
+                jobs:
+                  type: array
+                  maxItems: 1000
+                  items: { $ref: "#/components/schemas/GitHubJobContext" }
+      responses:
+        "200": { description: Observations accepted; only exact registered runner matches are applied. }
+        "400": { description: Invalid observations. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /github/queued-jobs:
     get:
       tags: [GitHub]
@@ -477,6 +497,8 @@ components:
       type: object
       required: [id, action, state, labels, didStart]
       properties:
+        github:
+          $ref: "#/components/schemas/GitHubJobContext"
         id: { type: integer }
         action: { $ref: "#/components/schemas/WorkflowAction" }
         state: { $ref: "#/components/schemas/ExecutorJobState" }
@@ -502,6 +524,13 @@ components:
       type: object
       required: [name, managedByExecutor]
       properties:
+        createdForJob:
+          $ref: "#/components/schemas/GitHubJobContext"
+        assignedJob:
+          $ref: "#/components/schemas/GitHubJobContext"
+        cpu: { type: [integer, "null"] }
+        memory: { type: [integer, "null"], description: Configured memory in MiB; detail endpoint only. }
+        os: { type: [string, "null"] }
         name: { type: string }
         ipAddress: { type: [string, "null"] }
         jobId: { type: [integer, "null"] }
@@ -556,6 +585,9 @@ components:
       type: object
       required: [id, labels]
       properties:
+        repository: { type: [string, "null"] }
+        github:
+          $ref: "#/components/schemas/GitHubJobContext"
         id:
           type: integer
           description: GitHub workflow job id.
@@ -596,6 +628,8 @@ components:
       type: object
       required: [id, repository, status, labels]
       properties:
+        github:
+          $ref: "#/components/schemas/GitHubJobContext"
         id: { type: integer }
         repository:
           type: string
@@ -613,6 +647,8 @@ components:
       type: object
       required: [id, runId, name, repository, labels, createdAt, matchesRunnerLabels]
       properties:
+        github:
+          $ref: "#/components/schemas/GitHubJobContext"
         id:
           type: integer
           description: GitHub workflow job id. Pass this to `/jobs/dispatch`.
@@ -645,6 +681,10 @@ components:
       type: object
       required: [hostname, jobs, scannedAt, repositoriesScanned, truncated, warnings]
       properties:
+        runnerJobs:
+          type: [array, "null"]
+          description: Positive runner observations from unfinished runs; never scheduling demand.
+          items: { $ref: "#/components/schemas/GitHubJobContext" }
         hostname: { type: string }
         jobs:
           type: array
@@ -662,5 +702,36 @@ components:
             limit. Show these; an empty `jobs` array alone does not mean the queue is empty.
         rateLimitRemaining: { type: [integer, "null"] }
         rateLimitResetAt: { type: [string, "null"], format: date-time }
+
+    GitHubJobContext:
+      type: object
+      description: Display metadata and positive runner observations, independent of scheduling.
+      required: [workflowJobId]
+      properties:
+        workflowJobId: { type: string, description: Canonical decimal GitHub job identifier. }
+        workflowRunId: { type: [string, "null"] }
+        repository: { type: [string, "null"] }
+        name: { type: [string, "null"] }
+        workflowName: { type: [string, "null"] }
+        htmlUrl: { type: [string, "null"] }
+        runUrl: { type: [string, "null"] }
+        runTitle: { type: [string, "null"] }
+        event: { type: [string, "null"] }
+        actor: { type: [string, "null"] }
+        headBranch: { type: [string, "null"] }
+        headSha: { type: [string, "null"] }
+        status: { type: [string, "null"] }
+        conclusion: { type: [string, "null"] }
+        runnerName: { type: [string, "null"] }
+        source: { type: [string, "null"] }
+        runNumber: { type: [integer, "null"] }
+        runAttempt: { type: [integer, "null"] }
+        createdAt: { type: [string, "null"], format: date-time }
+        startedAt: { type: [string, "null"], format: date-time }
+        completedAt: { type: [string, "null"], format: date-time }
+        observedAt: { type: [string, "null"], format: date-time }
+        warnings:
+          type: [array, "null"]
+          items: { type: string }
 """#
 }
