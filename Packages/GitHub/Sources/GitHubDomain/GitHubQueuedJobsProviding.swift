@@ -7,9 +7,16 @@ public protocol GitHubQueuedJobsProviding: Sendable {
 
     /// Looks up one job directly. Failure means its state is unknown, not that it completed.
     func job(id: Int, repository: String) async throws -> GitHubJobStatus
+
+    /// Cached display enrichment. Never use this method to decide whether to provision or cancel.
+    func jobDetails(id: Int, repository: String) async throws -> GitHubJobStatus
 }
 
 public extension GitHubQueuedJobsProviding {
+    func jobDetails(id: Int, repository: String) async throws -> GitHubJobStatus {
+        try await job(id: id, repository: repository)
+    }
+
     func job(id: Int, repository: String) async throws -> GitHubJobStatus {
         throw GitHubJobLookupError.unsupported
     }

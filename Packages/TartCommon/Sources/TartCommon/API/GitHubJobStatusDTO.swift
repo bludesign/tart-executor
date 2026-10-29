@@ -7,12 +7,14 @@ public struct GitHubJobStatusDTO: Codable, Sendable {
     public let status: String
     public let labels: [String]
     public let runnerName: String?
+    public let github: GitHubJobContext?
 
-    public init(id: Int, repository: String, status: String, labels: [String], runnerName: String?) {
+    public init(id: Int, repository: String, status: String, labels: [String], runnerName: String?, github: GitHubJobContext? = nil) {
         self.id = id
         self.repository = repository
         self.status = status
         self.labels = labels
         self.runnerName = runnerName
+        self.github = github
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import GitHubDomain
 
 // The networking service decodes with a plain `JSONDecoder` (no key or date strategy), so these
 // spell out their snake_case keys and keep timestamps as strings for `GitHubDateParser`.
@@ -41,6 +42,26 @@ struct GitHubWorkflowRun: Decodable {
     let status: String?
 }
 
+struct GitHubWorkflowRunDetails: Decodable, Sendable {
+    struct Actor: Decodable, Sendable {
+        let login: String
+    }
+
+    let id: Int
+    let htmlUrl: String?
+    let displayTitle: String?
+    let runNumber: Int?
+    let event: String?
+    let actor: Actor?
+
+    enum CodingKeys: String, CodingKey {
+        case id, event, actor
+        case htmlUrl = "html_url"
+        case displayTitle = "display_title"
+        case runNumber = "run_number"
+    }
+}
+
 struct GitHubJobsPage: Decodable {
     let totalCount: Int?
     let jobs: [GitHubJob]
@@ -62,6 +83,11 @@ struct GitHubJob: Decodable {
     let createdAt: String?
     let startedAt: String?
     let runnerName: String?
+    let headBranch: String?
+    let headSha: String?
+    let runAttempt: Int?
+    let conclusion: String?
+    let completedAt: String?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -74,6 +100,23 @@ struct GitHubJob: Decodable {
         case createdAt = "created_at"
         case startedAt = "started_at"
         case runnerName = "runner_name"
+        case headBranch = "head_branch"
+        case headSha = "head_sha"
+        case runAttempt = "run_attempt"
+        case conclusion
+        case completedAt = "completed_at"
+    }
+
+    func asStatus(repository: String, run: GitHubWorkflowRunDetails? = nil) -> GitHubJobStatus {
+        GitHubJobStatus(
+            id: id, repository: repository, status: status, labels: Set(labels), runnerName: runnerName,
+            runId: runId, name: name, workflowName: workflowName, htmlUrl: htmlUrl,
+            headBranch: headBranch, headSha: headSha, runAttempt: runAttempt, conclusion: conclusion,
+            createdAt: GitHubDateParser.date(from: createdAt), startedAt: GitHubDateParser.date(from: startedAt),
+            completedAt: GitHubDateParser.date(from: completedAt), runUrl: run?.htmlUrl,
+            runTitle: run?.displayTitle, runNumber: run?.runNumber, event: run?.event,
+            actor: run?.actor?.login, observedAt: Date()
+        )
     }
 }
 

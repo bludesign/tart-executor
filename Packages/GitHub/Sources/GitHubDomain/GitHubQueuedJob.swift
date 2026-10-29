@@ -14,6 +14,8 @@ public struct GitHubQueuedJob: Sendable, Identifiable, Hashable {
     public let labels: Set<String>
     public let createdAt: Date
     public let startedAt: Date?
+    /// Job metadata already returned by GitHub during this scan; no extra lookup is required.
+    public let details: GitHubJobStatus?
 
     public init(
         id: Int,
@@ -24,7 +26,8 @@ public struct GitHubQueuedJob: Sendable, Identifiable, Hashable {
         htmlURL: String?,
         labels: Set<String>,
         createdAt: Date,
-        startedAt: Date?
+        startedAt: Date?,
+        details: GitHubJobStatus? = nil
     ) {
         self.id = id
         self.runId = runId
@@ -35,6 +38,7 @@ public struct GitHubQueuedJob: Sendable, Identifiable, Hashable {
         self.labels = labels
         self.createdAt = createdAt
         self.startedAt = startedAt
+        self.details = details
     }
 }
 
@@ -49,6 +53,8 @@ public struct GitHubQueuedJobsSnapshot: Sendable {
     public let warnings: [String]
     public let rateLimitRemaining: Int?
     public let rateLimitResetAt: Date?
+    /// Runner assignments observed while inspecting unfinished runs; never scheduling demand.
+    public let runnerJobs: [GitHubJobStatus]
 
     public init(
         jobs: [GitHubQueuedJob],
@@ -57,7 +63,8 @@ public struct GitHubQueuedJobsSnapshot: Sendable {
         truncated: Bool,
         warnings: [String],
         rateLimitRemaining: Int?,
-        rateLimitResetAt: Date?
+        rateLimitResetAt: Date?,
+        runnerJobs: [GitHubJobStatus] = []
     ) {
         self.jobs = jobs
         self.scannedAt = scannedAt
@@ -66,5 +73,6 @@ public struct GitHubQueuedJobsSnapshot: Sendable {
         self.warnings = warnings
         self.rateLimitRemaining = rateLimitRemaining
         self.rateLimitResetAt = rateLimitResetAt
+        self.runnerJobs = runnerJobs
     }
 }

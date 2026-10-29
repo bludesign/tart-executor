@@ -274,12 +274,47 @@ Each service serves its own OpenAPI 3.1 spec and a browsable Redoc page:
 | POST | `/api/v1/jobs/cancel` | Cancel by labels (body `{"labels":["..."]}`) |
 | POST | `/api/v1/jobs/cancel-all` | Cancel all active jobs |
 | POST | `/api/v1/jobs/dispatch` | Start a VM for a job (body `{"id":123,"labels":["..."],"force":false}`) |
+| POST | `/api/v1/github/job-observations` | Observe runner assignments without changing lifecycle |
 | GET | `/api/v1/github/queued-jobs` | GitHub Actions jobs waiting for a runner (`?matching=all`, `?refresh=true`) |
 | GET | `/api/v1/github/jobs/{id}` | Exact GitHub job status; requires `?repository=owner/repo`, including for completed jobs |
 | GET | `/api/v1/vms` | List local Tart VMs / images |
 | GET | `/api/v1/vms/{name}` | VM detail including IP |
 | DELETE | `/api/v1/vms/{name}` | Delete a VM |
 | POST | `/api/v1/images/pull` | Pull an image (body `{"name":"...","isInsecure":false}`) |
+
+### Fleet inventory and GitHub attribution
+
+`GET /api/v1/vms` lists **all local Tart VMs** visible to the executor, including manually created
+machines. It uses the executor service user's Tart store (`TART_HOME`, or that user's `~/.tart`).
+VMs started under another user or a different Tart home require an executor configured for that
+store. The list includes running, stopped, suspended, and unknown-state entries. Older Tart builds
+can return names without state; unknown is not evidence that a machine is stopped. Executor status
+CPU, memory, VM limits, and `activeVirtualMachines` describe executor allocations, not all Tart VMs.
+
+`GET /api/v1/vms/{name}` additionally reads optional configured CPU, memory (MiB), and OS with
+`tart get --format json`, plus IP when available. These on-demand reads do not run during fleet
+inventory polling. Unsupported configuration fields remain absent.
+
+Jobs expose optional `github` display metadata, including names, repository, workflow, branch,
+commit, timestamps, and GitHub job/run links. VM responses expose `createdForJob` separately from
+`assignedJob`: GitHub may give a compatible runner another queued job. Only an exact registered
+runner-name match confirms assignment; the job ID in a VM name identifies its creation trigger.
+An assigned completed job remains visible as the last job until its VM is removed. External VMs
+without a known registered runner binding have unknown GitHub attribution.
+
+The router distributes positive observations through authenticated
+`POST /api/v1/github/job-observations` using `reconciliation.executorApiToken`. This endpoint only
+updates display metadata. It never dispatches or cancels jobs. `runnerJobs` in the GitHub queue
+response carries observations independently of the queued-only `jobs` array. The router shares
+one bounded scan every reconciliation interval (60 seconds by default); standalone executors
+scan every 30 seconds while managed VMs exist. Executors behind a router do not run their own
+organization-wide observation scans. Cached job/run enrichment uses the existing GitHub App's
+Actions read permission; dashboards and iOS do not need GitHub credentials.
+
+Metadata is held in memory, with no durable job history or log store. Failed/partial scans never
+clear confirmed assignment or imply that a runner is idle. A short job whose notifications were
+entirely missed can remain unknown after bounded unfinished-run discovery. Upgrade executors and
+router before Universal Search, then update iOS; older payloads remain valid with missing metadata.
 
 ### tart-router endpoints
 

@@ -27,7 +27,7 @@ public protocol ExecutorServerSettings {
 }
 
 final class ExecutorServer {
-    private let decoder = JSONDecoder()
+    private let decoder = JSONDecoder.api
     private let encoder = JSONEncoder()
     private var server: HTTPServer?
 
@@ -45,6 +45,7 @@ final class ExecutorServer {
     /// Scans GitHub for queued jobs. `nil` when GitHub scanning is disabled or unconfigured, in
     /// which case the `/api/v1/github/*` routes answer `503`.
     let queuedJobsProvider: GitHubQueuedJobsProviding?
+    private var observationTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
     let settings: ExecutorServerSettings
     let virtualMachineProvider: VirtualMachineProvider
@@ -113,8 +114,10 @@ final class ExecutorServer {
                 let workflowJob = WorkflowJob(
                     id: webhookResponse.workflow_job.id,
                     action: webhookResponse.action,
-                    labels: webhookResponse.workflow_job.labels
+                    labels: webhookResponse.workflow_job.labels,
+                    github: webhookResponse.jobContext
                 )
+                await jobHandler.observeJob(webhookResponse.jobContext)
                 let result = await handleWorkflowJob(workflowJob)
                 if !result {
                     return .init(statusCode: .badGateway)
@@ -135,8 +138,10 @@ final class ExecutorServer {
                 let workflowJob = WorkflowJob(
                     id: webhookResponse.workflow_job.id,
                     action: .routerStart,
-                    labels: webhookResponse.workflow_job.labels
+                    labels: webhookResponse.workflow_job.labels,
+                    github: webhookResponse.jobContext
                 )
+                await jobHandler.observeJob(webhookResponse.jobContext)
                 let result = await handleWorkflowJob(workflowJob)
                 if !result {
                     return .init(statusCode: .badGateway)
@@ -230,10 +235,18 @@ tart_executor_memory_used\(labels) \(jobStatus.memoryUsed)
             throw error
         }
         await removeLeftoverVirtualMachines()
+        observationTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.refreshJobMetadata()
+                do { try await Task.sleep(for: .seconds(30)) } catch { break }
+            }
+        }
+        defer { observationTask?.cancel() }
         try await serverTask.value
     }
 
     func stop() async {
+        observationTask?.cancel()
         await server?.stop()
         server = nil
     }

@@ -60,7 +60,8 @@ actor RouterGitHubReconciler: RouterGitHubReconciling {
             truncated: snapshot.truncated,
             warnings: snapshot.warnings,
             rateLimitRemaining: snapshot.rateLimitRemaining,
-            rateLimitResetAt: snapshot.rateLimitResetAt
+            rateLimitResetAt: snapshot.rateLimitResetAt,
+            runnerJobs: snapshot.runnerJobs
         )
     }
 

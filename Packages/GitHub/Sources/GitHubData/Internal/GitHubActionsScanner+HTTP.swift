@@ -19,12 +19,13 @@ extension GitHubActionsScanner {
         _ type: T.Type,
         url: URL,
         token: String,
-        cache: [String: CachedResponse]
+        cache: [String: CachedResponse],
+        timeout: TimeInterval = Constants.requestTimeout
     ) async -> FetchOutcome<T> {
         var outcome = FetchOutcome<T>()
         let cached = cache[url.absoluteString]
 
-        var request = URLRequest(url: url, timeoutInterval: Constants.requestTimeout)
+        var request = URLRequest(url: url, timeoutInterval: timeout)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue(Constants.apiVersion, forHTTPHeaderField: "X-GitHub-Api-Version")

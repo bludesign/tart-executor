@@ -17,6 +17,7 @@ public protocol VirtualMachineProvider: AnyObject {
     /// Lists all local Tart virtual machines / images with the detail exposed by `tart list`
     /// (state, size, source), falling back to name-only items when that detail is unavailable.
     func listVirtualMachineDetails() async throws -> [VirtualMachineListItem]
+    func virtualMachineDetails(name: String) async throws -> VirtualMachineListItem
     /// Capacity of the volume backing the Tart home directory, or `nil` if it can't be determined.
     func hostDiskUsage() -> TartDiskUsage?
     /// Deletes a single virtual machine by name.
@@ -25,4 +26,13 @@ public protocol VirtualMachineProvider: AnyObject {
     func pullImage(name: String, isInsecure: Bool) async throws
     /// Returns the IP address of a running virtual machine.
     func ipAddress(ofVirtualMachineNamed name: String) async throws -> String
+}
+
+public extension VirtualMachineProvider {
+    func virtualMachineDetails(name: String) async throws -> VirtualMachineListItem {
+        guard let item = try await listVirtualMachineDetails().first(where: { $0.name == name }) else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+        return item
+    }
 }

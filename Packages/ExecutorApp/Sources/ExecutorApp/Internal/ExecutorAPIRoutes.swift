@@ -145,6 +145,11 @@ extension ExecutorServer {
             return await gitHubJobStatusResponse(for: request)
         }
 
+        await server.appendRoute("POST /api/v1/github/job-observations") { [weak self] request in
+            guard let self else { return .init(statusCode: .badGateway) }
+            return await jobObservationsResponse(for: request)
+        }
+
         await server.appendRoute("GET /api/v1/github/queued-jobs") { [weak self] request in
             guard let self else { return .init(statusCode: .badGateway) }
             if let denied = authorizationFailure(for: request) { return denied }
@@ -171,7 +176,8 @@ extension ExecutorServer {
                 truncated: snapshot.truncated,
                 warnings: snapshot.warnings,
                 rateLimitRemaining: snapshot.rateLimitRemaining,
-                rateLimitResetAt: snapshot.rateLimitResetAt
+                rateLimitResetAt: snapshot.rateLimitResetAt,
+                runnerJobs: snapshot.runnerJobs.map(\.context)
             )
             return .json(response, encoder: apiEncoder)
         }
@@ -183,7 +189,9 @@ extension ExecutorServer {
             if let denied = authorizationFailure(for: request) { return denied }
             do {
                 let items = try await virtualMachineProvider.listVirtualMachineDetails()
-                let vms = items.map { self.virtualMachineDTO(from: $0, ipAddress: nil) }
+                await jobHandler.confirmInventory(names: Set(items.map(\.name)))
+                var vms = [VirtualMachineDTO]()
+                for item in items { vms.append(await virtualMachineDTO(from: item, ipAddress: nil)) }
                 return .json(VirtualMachineListResponse(virtualMachines: vms), encoder: apiEncoder)
             } catch {
                 return .jsonError("Failed to list virtual machines", statusCode: .init(500, phrase: "Internal Server Error"))
@@ -196,12 +204,16 @@ extension ExecutorServer {
             guard let name = request.routeParameters["name"] else {
                 return .jsonError("Invalid virtual machine name", statusCode: .badRequest)
             }
-            let items = (try? await virtualMachineProvider.listVirtualMachineDetails()) ?? []
+            let items: [VirtualMachineListItem]
+            do { items = try await virtualMachineProvider.listVirtualMachineDetails() } catch {
+                return .jsonError("Failed to inspect virtual machine inventory", statusCode: .badGateway)
+            }
             guard let item = items.first(where: { $0.name == name }) else {
                 return .jsonError("Virtual machine not found", statusCode: .notFound)
             }
             let ipAddress = try? await virtualMachineProvider.ipAddress(ofVirtualMachineNamed: name)
-            return .json(virtualMachineDTO(from: item, ipAddress: ipAddress), encoder: apiEncoder)
+            let detail = (try? await virtualMachineProvider.virtualMachineDetails(name: name)) ?? item
+            return .json(await virtualMachineDTO(from: detail, ipAddress: ipAddress), encoder: apiEncoder)
         }
 
         await server.appendRoute("DELETE /api/v1/vms/:name") { [weak self] request in
@@ -262,7 +274,7 @@ extension ExecutorServer {
     /// Builds a `VirtualMachineDTO` from a Tart listing item, deriving the owning job id for
     /// executor-managed VMs whose name follows the `tart-executor-<jobId>-<uuid>` convention and
     /// carrying through the state/size/source detail from `tart list --format json`.
-    func virtualMachineDTO(from item: VirtualMachineListItem, ipAddress: String?) -> VirtualMachineDTO {
+    func virtualMachineDTO(from item: VirtualMachineListItem, ipAddress: String?) async -> VirtualMachineDTO {
         let prefix = ExecutorConstants.virtualMachineNamePrefix
         let jobId: Int?
         let managedByExecutor: Bool
@@ -274,6 +286,7 @@ extension ExecutorServer {
             jobId = nil
             managedByExecutor = false
         }
+        let attribution = await jobHandler.attribution(for: item.name)
         return VirtualMachineDTO(
             name: item.name,
             ipAddress: ipAddress,
@@ -283,7 +296,10 @@ extension ExecutorServer {
             running: item.running,
             sizeGB: item.sizeGB,
             diskGB: item.diskGB,
-            source: item.source
+            source: item.source,
+            createdForJob: attribution.createdFor,
+            assignedJob: attribution.assigned,
+            cpu: item.cpu, memory: item.memory, os: item.os
         )
     }
 }

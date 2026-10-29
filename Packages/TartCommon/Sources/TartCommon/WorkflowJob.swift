@@ -4,6 +4,7 @@ public struct WorkflowJob: Codable, Identifiable, Hashable {
     public let id: Int
     public let action: WorkflowAction
     public let labels: Set<String>
+    public let github: GitHubJobContext?
 
     public var filteredLabels: Set<String> {
         labels.filter { label in
@@ -27,10 +28,11 @@ public struct WorkflowJob: Codable, Identifiable, Hashable {
         intValue(forLabel: "minMemory")
     }
 
-    public init(id: Int, action: WorkflowAction, labels: Set<String>) {
+    public init(id: Int, action: WorkflowAction, labels: Set<String>, github: GitHubJobContext? = nil) {
         self.id = id
         self.action = action
         self.labels = labels
+        self.github = github
     }
 
     public func hash(into hasher: inout Hasher) {
@@ -72,6 +74,21 @@ public struct WebhookResponse: Codable {
     public struct WorkflowJobResponse: Codable, Identifiable {
         public let id: Int
         public let labels: Set<String>
+        public var run_id: Int?
+        public var run_attempt: Int?
+        public var name: String?
+        public var workflow_name: String?
+        public var html_url: String?
+        public var head_branch: String?
+        public var head_sha: String?
+        public var status: String?
+        public var conclusion: String?
+        public var runner_name: String?
+        public var created_at: String?
+        public var started_at: String?
+        public var completed_at: String?
+        /// Used by manual dispatch and recovery to preserve normalized enrichment.
+        public var github: GitHubJobContext?
 
         public init(id: Int, labels: Set<String>) {
             self.id = id
@@ -82,6 +99,26 @@ public struct WebhookResponse: Codable {
     public let action: WorkflowAction
     public let workflow_job: WorkflowJobResponse
     public let repository: RepositoryResponse?
+
+    public var jobContext: GitHubJobContext {
+        func date(_ value: String?) -> Date? {
+            guard let value else { return nil }
+            let formatter = ISO8601DateFormatter()
+            if let date = formatter.date(from: value) { return date }
+            formatter.formatOptions.insert(.withFractionalSeconds)
+            return formatter.date(from: value)
+        }
+        let job = workflow_job
+        let context = GitHubJobContext(
+            workflowJobId: String(job.id), workflowRunId: job.run_id.map(String.init),
+            repository: repository?.full_name, name: job.name, workflowName: job.workflow_name,
+            htmlUrl: job.html_url, runAttempt: job.run_attempt, headBranch: job.head_branch,
+            headSha: job.head_sha, status: job.status ?? action.rawValue, conclusion: job.conclusion,
+            runnerName: job.runner_name, createdAt: date(job.created_at), startedAt: date(job.started_at),
+            completedAt: date(job.completed_at), observedAt: Date(), source: "webhook"
+        )
+        return job.github.map { $0.merging(context) } ?? context
+    }
 
     public init(action: WorkflowAction, workflow_job: WorkflowJobResponse, repository: RepositoryResponse? = nil) {
         self.action = action

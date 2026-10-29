@@ -81,6 +81,19 @@ public final class Tart {
         return rows.map(\.asListItem)
     }
 
+    public func getDetails(name: String) async throws -> VirtualMachineListItem {
+        let json = try await executeCommand(withArguments: ["get", name, "--format", "json"])
+        return try Self.decodeDetails(json, name: name)
+    }
+
+    static func decodeDetails(_ json: String, name: String) throws -> VirtualMachineListItem {
+        let row = try JSONDecoder().decode(TartDetailRow.self, from: Data(json.utf8))
+        return VirtualMachineListItem(
+            name: name, source: "local", state: row.state, running: row.running,
+            sizeGB: row.size, diskGB: row.disk, cpu: row.cpu, memory: row.memory, os: row.os
+        )
+    }
+
     /// Capacity of the volume backing the Tart home directory (or the user's home volume when no
     /// `TART_HOME` override is configured). Returns `nil` if the volume can't be inspected.
     public func hostDiskUsage() -> TartDiskUsage? {
@@ -104,6 +117,36 @@ public final class Tart {
         }
         let result = try await executeCommand(withArguments: arguments)
         return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+private struct TartDetailRow: Decodable {
+    let cpu: Int?
+    let memory: Int?
+    let os: String?
+    let state: String?
+    let running: Bool?
+    let size: Double?
+    let disk: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case cpu = "CPU", memory = "Memory", os = "OS", state = "State"
+        case running = "Running", size = "Size", disk = "Disk"
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        cpu = try values.decodeIfPresent(Int.self, forKey: .cpu)
+        memory = try values.decodeIfPresent(Int.self, forKey: .memory)
+        os = try values.decodeIfPresent(String.self, forKey: .os)
+        state = try values.decodeIfPresent(String.self, forKey: .state)
+        running = try values.decodeIfPresent(Bool.self, forKey: .running)
+        func number(_ key: CodingKeys) -> Double? {
+            if let value = try? values.decode(Double.self, forKey: key) { return value }
+            return (try? values.decode(String.self, forKey: key)).flatMap(Double.init)
+        }
+        size = number(.size)
+        disk = number(.disk)
     }
 }
 
